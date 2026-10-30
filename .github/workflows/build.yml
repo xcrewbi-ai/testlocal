@@ -1,0 +1,34 @@
+name: Build Fake GPS (CompassPro) IPA
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show Xcode & Environment Info
+        run: |
+          xcodebuild -version
+          xcrun --version
+
+      - name: Install ldid
+        run: brew install ldid || true
+
+      - name: Run build script
+        run: |
+          chmod +x ipabuild.sh
+          ./ipabuild.sh
+
+      - name: Upload IPA Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CompassPro-iOS-App
+          path: |
+            build/*.ipa
+            build/*.tipa
