@@ -42,11 +42,13 @@ struct WelcomeView: View {
                 }
             }
             
-            Section(header: Text("Cleaner File Sizes")) {
+            Section {
                 Text("This is an issue that might incorrectly set permissions when calculating file sizes for your device.")
                 Toggle(isOn: $appSettings.getSizes) {
                     Text("Calculate File Size")
                 }
+            } header: {
+                Text("Cleaner File Sizes")
             }
             if !updBypass {
                 Section(header: Text("WARNING")) {

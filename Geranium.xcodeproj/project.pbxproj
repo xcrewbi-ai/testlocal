@@ -391,13 +391,11 @@
 				FAA456CD2B265FEA00FC7287 /* Sources */,
 				FAA456CE2B265FEA00FC7287 /* Frameworks */,
 				FAA456CF2B265FEA00FC7287 /* Resources */,
-				796072ED2B4F4FAE00737B5D /* Embed Foundation Extensions */,
-			);
+							);
 			buildRules = (
 			);
 			dependencies = (
-				796072EB2B4F4FAE00737B5D /* PBXTargetDependency */,
-			);
+							);
 			name = Geranium;
 			packageProductDependencies = (
 				7969F9192B5E57DE0010DBE5 /* AlertKit */,
@@ -562,37 +560,20 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				793E3D6F2B37AA1300A72671 /* BetaChecker.swift in Sources */,
-				7989FD082B34894400FBAB8D /* BookMarkSlider.swift in Sources */,
-				7916D9E62B34FC06008E88F2 /* Paths.swift in Sources */,
-				79FDECC92B878F4700B2DFB0 /* NotifHelp.swift in Sources */,
-				7916D9E42B34D9C4008E88F2 /* CurrentlyDisabledDaemonView.swift in Sources */,
-				FAA457122B2661E300FC7287 /* TSUtil.m in Sources */,
+								7989FD082B34894400FBAB8D /* BookMarkSlider.swift in Sources */,
+																FAA457122B2661E300FC7287 /* TSUtil.m in Sources */,
 				7989FD062B3486B100FBAB8D /* CustomMapView.swift in Sources */,
-				FAA457272B26667E00FC7287 /* HomeView.swift in Sources */,
-				FAA457292B26668900FC7287 /* DaemonView.swift in Sources */,
-				790301C72B3794FF0044E30A /* DaemonWelcomeView.swift in Sources */,
-				FAA457232B26654700FC7287 /* Addon.swift in Sources */,
+																FAA457232B26654700FC7287 /* Addon.swift in Sources */,
 				F82C58042E37786D00F76DFA /* CoordTransform.swift in Sources */,
-				790301C52B3794480044E30A /* SettingsView.swift in Sources */,
-				79DF26992B31C90C005D81D2 /* WelcomeView.swift in Sources */,
-				7989FD032B347EEA00FBAB8D /* LocSimView.swift in Sources */,
+												7989FD032B347EEA00FBAB8D /* LocSimView.swift in Sources */,
 				7989FD992B347EEA00FBAB8D /* RouteSimulationEngine.swift in Sources */,
-				FAA457322B2667CB00FC7287 /* SuperviseView.swift in Sources */,
-				792845532B2C67910021E1FD /* FileCleaner.swift in Sources */,
-				799488A62B347E2C00AFFDCF /* LocSimManager.swift in Sources */,
-				79C28EF72B3F5C7100050A42 /* ByeTimeView.swift in Sources */,
-				FAA456D72B265FEA00FC7287 /* ContentView.swift in Sources */,
+												799488A62B347E2C00AFFDCF /* LocSimManager.swift in Sources */,
+								FAA456D72B265FEA00FC7287 /* ContentView.swift in Sources */,
 				7918209A2B31F109007EEC24 /* LogHelper.swift in Sources */,
-				7928455A2B2C80A40021E1FD /* DaemonDisabler.swift in Sources */,
-				7989FD0A2B348A0200FBAB8D /* BookMarkHelper.swift in Sources */,
+								7989FD0A2B348A0200FBAB8D /* BookMarkHelper.swift in Sources */,
 				FAA456D52B265FEA00FC7287 /* GeraniumApp.swift in Sources */,
-				79AEFBBD2B2CBC6B0074EC34 /* ProgressBar.swift in Sources */,
-				79BA958A2B30D91600380D83 /* RootHelperMan.swift in Sources */,
-				FAA457302B2666F300FC7287 /* CleanerView.swift in Sources */,
-				79C28EF92B3F5ED800050A42 /* ByeTimeHelper.swift in Sources */,
-				799D42462B553AF1001867E0 /* CustomPaths.swift in Sources */,
-			);
+								79BA958A2B30D91600380D83 /* RootHelperMan.swift in Sources */,
+															);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		FAA456DD2B265FED00FC7287 /* Sources */ = {
