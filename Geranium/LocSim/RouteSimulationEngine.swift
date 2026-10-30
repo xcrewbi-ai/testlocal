@@ -168,7 +168,7 @@ class RouteSimulationEngine: ObservableObject {
     }
 
     private func advanceDistance(_ stepDistance: Double, speedKmh: Double, speedMps: Double) {
-        guard currentSegmentIndex < waypoints.count - 1 else {
+        if currentSegmentIndex >= waypoints.count - 1 {
             // Reached the end of route
             if isLooping {
                 currentSegmentIndex = 0
