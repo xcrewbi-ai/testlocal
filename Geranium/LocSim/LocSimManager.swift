@@ -8,63 +8,35 @@
 import Foundation
 import CoreLocation
 
+
 class LocSimManager {
     static let simManager = CLSimulationManager()
-    private static let simQueue = DispatchQueue(label: "live.cclerc.geranium.locsim.queue", qos: .userInteractive)
-    private static var isSimulatingActive: Bool = false
     
-    /// Updates timezone asynchronously (never deadlocks or blocks calling thread)
-    static func post_required_timezone_update() {
-        CFNotificationCenterPostNotificationWithOptions(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            .init("AutomaticTimeZoneUpdateNeeded" as CFString),
-            nil,
-            nil,
-            0
-        )
+    /// Updates timezone
+    static func post_required_timezone_update(){
+        CFNotificationCenterPostNotificationWithOptions(CFNotificationCenterGetDarwinNotifyCenter(), .init("AutomaticTimeZoneUpdateNeeded" as CFString), nil, nil, kCFNotificationDeliverImmediately);
     }
     
     /// Starts a location simulation of specified argument "location"
-    static func startLocSim(location: CLLocation, updateTimezone: Bool = true) {
-        simQueue.async {
-            simManager.stopLocationSimulation()
-            simManager.clearSimulatedLocations()
-            simManager.appendSimulatedLocation(location)
-            simManager.flush()
-            simManager.startLocationSimulation()
-            isSimulatingActive = true
-            if updateTimezone {
-                post_required_timezone_update()
-            }
-        }
-    }
-
-    /// Fast, smooth location update during route simulation without stop/start churn
-    static func updateSimulatedLocation(location: CLLocation) {
-        simQueue.async {
-            simManager.clearSimulatedLocations()
-            simManager.appendSimulatedLocation(location)
-            simManager.flush()
-            if !isSimulatingActive {
-                simManager.startLocationSimulation()
-                isSimulatingActive = true
-            }
-        }
+    // TODO: save
+    static func startLocSim(location: CLLocation) {
+        simManager.stopLocationSimulation()
+        simManager.clearSimulatedLocations()
+        simManager.appendSimulatedLocation(location)
+        simManager.flush()
+        simManager.startLocationSimulation()
+        post_required_timezone_update();
     }
     
     /// Stops location simulation
-    static func stopLocSim(updateTimezone: Bool = true) {
-        simQueue.async {
-            simManager.stopLocationSimulation()
-            simManager.clearSimulatedLocations()
-            simManager.flush()
-            isSimulatingActive = false
-            if updateTimezone {
-                post_required_timezone_update()
-            }
-        }
+    static func stopLocSim(){
+        simManager.stopLocationSimulation()
+        simManager.clearSimulatedLocations()
+        simManager.flush()
+        post_required_timezone_update();
     }
 }
+
 
 struct EquatableCoordinate: Equatable {
     var coordinate: CLLocationCoordinate2D
@@ -73,6 +45,9 @@ struct EquatableCoordinate: Equatable {
         lhs.coordinate.latitude == rhs.coordinate.latitude && lhs.coordinate.longitude == rhs.coordinate.longitude
     }
 }
+
+
+// https://stackoverflow.com/a/75703059
 
 class LocationModel: NSObject, ObservableObject {
     private let locationManager = CLLocationManager()
@@ -93,6 +68,7 @@ class LocationModel: NSObject, ObservableObject {
 }
 
 extension LocationModel: CLLocationManagerDelegate {
+
     func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
         self.authorisationStatus = status
     }

@@ -60,7 +60,8 @@ struct LocSimView: View {
             )
             .ignoresSafeArea(edges: .bottom)
             .onAppear {
-                LocationModel().requestAuthorisation(always: true)
+                CLLocationManager().requestAlwaysAuthorization()
+                LocationModel().requestAuthorisation()
             }
 
             if mode == .route {
@@ -454,7 +455,7 @@ struct LocSimView: View {
     }
 
     private func stopAllSimulation() {
-        routeEngine.stopSimulation(stopGPS: true)
+        routeEngine.stopSimulation()
         if appSettings.locSimMultipleAttempts {
             var countdown = appSettings.locSimAttemptNB
             DispatchQueue.global().async {

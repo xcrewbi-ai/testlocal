@@ -138,17 +138,23 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     private func setupSilentAudio() {
-        do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try AVAudioSession.sharedInstance().setActive(true)
-            let audioData = createSilentWAVData()
-            silentAudioPlayer = try AVAudioPlayer(data: audioData)
-            silentAudioPlayer?.numberOfLoops = -1
-            silentAudioPlayer?.volume = 0.01
-            silentAudioPlayer?.prepareToPlay()
-            silentAudioPlayer?.play()
-        } catch {
-            print("Background audio error: \(error)")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                try AVAudioSession.sharedInstance().setActive(true)
+                let audioData = self.createSilentWAVData()
+                let player = try AVAudioPlayer(data: audioData)
+                player.numberOfLoops = -1
+                player.volume = 0.01
+                player.prepareToPlay()
+                player.play()
+                DispatchQueue.main.async {
+                    self.silentAudioPlayer = player
+                }
+            } catch {
+                print("Background audio error: \(error)")
+            }
         }
     }
 
@@ -315,14 +321,6 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
         isSimulating = true
         isPaused = false
 
-        let firstCoord = waypoints[0].coordinate
-        currentCoordinate = firstCoord
-        sendSimulatedLocation(
-            coordinate: firstCoord,
-            course: calculateBearing(from: firstCoord, to: waypoints[1].coordinate),
-            speed: currentSpeedKmh / 3.6
-        )
-
         startBackgroundServices()
         startTimer()
         updateETA()
@@ -342,7 +340,7 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
         startTimer()
     }
 
-    func stopSimulation(stopGPS: Bool = false) {
+    func stopSimulation() {
         stopTimer()
         stopBackgroundServices()
         isSimulating = false
@@ -351,14 +349,12 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
         progressPercent = 0.0
         currentSegmentIndex = 0
         distanceAlongCurrentSegment = 0.0
+        currentCoordinate = nil
         updateETA()
-        if stopGPS {
-            currentCoordinate = nil
-            LocSimManager.stopLocSim()
-        }
+        LocSimManager.stopLocSim()
     }
 
-    func finishSimulationAtDestination() {
+    func finishRouteAtDestination() {
         stopTimer()
         stopBackgroundServices()
         isSimulating = false
@@ -366,14 +362,10 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
         currentSpeedKmh = 0.0
         progressPercent = 1.0
         distanceCoveredMeters = totalDistanceMeters
-        currentSegmentIndex = max(0, waypoints.count - 1)
-        distanceAlongCurrentSegment = 0.0
-        updateETA()
-
         if let destination = waypoints.last?.coordinate {
             currentCoordinate = destination
-            sendSimulatedLocation(coordinate: destination, course: 0.0, speed: 0.0)
         }
+        updateETA()
     }
 
     // MARK: - Timer & Movement Logic
@@ -476,7 +468,7 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
                     sendSimulatedLocation(coordinate: lastCoord, course: 0.0, speed: 0.0)
                 }
                 DispatchQueue.main.async { [weak self] in
-                    self?.finishSimulationAtDestination()
+                    self?.finishRouteAtDestination()
                 }
                 return
             }
@@ -510,7 +502,7 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
                         speed: 0.0
                     )
                     DispatchQueue.main.async { [weak self] in
-                        self?.finishSimulationAtDestination()
+                        self?.finishRouteAtDestination()
                     }
                     return
                 }
@@ -564,7 +556,7 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
             speed: speed,
             timestamp: Date()
         )
-        LocSimManager.updateSimulatedLocation(location: location)
+        LocSimManager.startLocSim(location: location)
     }
 
     // MARK: - ETA Calculation
