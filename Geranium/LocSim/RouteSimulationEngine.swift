@@ -95,8 +95,6 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         locationManager.distanceFilter = kCLDistanceFilterNone
-        locationManager.allowsBackgroundLocationUpdates = true
-        locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.requestAlwaysAuthorization()
     }
 
@@ -105,7 +103,9 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     private func startBackgroundServices() {
-        // 1. Location updates
+        // 1. Location updates for background persistence
+        locationManager.allowsBackgroundLocationUpdates = true
+        locationManager.pausesLocationUpdatesAutomatically = false
         locationManager.startUpdatingLocation()
 
         // 2. Silent audio loop
@@ -117,6 +117,7 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
 
     private func stopBackgroundServices() {
         locationManager.stopUpdatingLocation()
+        locationManager.allowsBackgroundLocationUpdates = false
         stopSilentAudio()
         endBackgroundTask()
     }
@@ -124,14 +125,15 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
     private func startBackgroundTask() {
         endBackgroundTask()
         bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "CompassProBackgroundRoute") { [weak self] in
-            self?.startBackgroundTask()
+            self?.endBackgroundTask()
         }
     }
 
     private func endBackgroundTask() {
         if bgTaskId != .invalid {
-            UIApplication.shared.endBackgroundTask(bgTaskId)
+            let taskId = bgTaskId
             bgTaskId = .invalid
+            UIApplication.shared.endBackgroundTask(taskId)
         }
     }
 
@@ -562,7 +564,7 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
             speed: speed,
             timestamp: Date()
         )
-        LocSimManager.startLocSim(location: location)
+        LocSimManager.updateSimulatedLocation(location: location)
     }
 
     // MARK: - ETA Calculation

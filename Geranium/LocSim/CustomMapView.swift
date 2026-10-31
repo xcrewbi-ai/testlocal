@@ -54,30 +54,36 @@ struct CustomMapView: UIViewRepresentable {
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.parent = self
 
-        // Update overlays (Polyline)
-        mapView.removeOverlays(mapView.overlays)
-        if waypoints.count >= 2 {
-            let coords = waypoints.map { $0.coordinate }
-            let polyline = MKPolyline(coordinates: coords, count: coords.count)
-            mapView.addOverlay(polyline)
-        }
+        let waypointsChanged = (context.coordinator.lastWaypoints != waypoints)
+        let modeChanged = (context.coordinator.lastRouteMode != isRouteMode)
 
-        // Update waypoint annotations
-        let existingWaypointAnns = mapView.annotations.compactMap { $0 as? WaypointAnnotation }
-        mapView.removeAnnotations(existingWaypointAnns)
+        if waypointsChanged || modeChanged {
+            context.coordinator.lastWaypoints = waypoints
+            context.coordinator.lastRouteMode = isRouteMode
 
-        if isRouteMode || !waypoints.isEmpty {
-            let newAnns = waypoints.map { WaypointAnnotation(coordinate: $0.coordinate, order: $0.order) }
-            mapView.addAnnotations(newAnns)
+            // Update overlays (Polyline)
+            mapView.removeOverlays(mapView.overlays)
+            if waypoints.count >= 2 {
+                let coords = waypoints.map { $0.coordinate }
+                let polyline = MKPolyline(coordinates: coords, count: coords.count)
+                mapView.addOverlay(polyline)
+            }
+
+            // Update waypoint annotations
+            let existingWaypointAnns = mapView.annotations.compactMap { $0 as? WaypointAnnotation }
+            mapView.removeAnnotations(existingWaypointAnns)
+
+            if isRouteMode || !waypoints.isEmpty {
+                let newAnns = waypoints.map { WaypointAnnotation(coordinate: $0.coordinate, order: $0.order) }
+                mapView.addAnnotations(newAnns)
+            }
         }
 
         // Update moving vehicle annotation
         let existingVehicleAnn = mapView.annotations.first { $0 is MovingVehicleAnnotation } as? MovingVehicleAnnotation
         if let simCoord = currentSimulatedCoord {
             if let existing = existingVehicleAnn {
-                UIView.animate(withDuration: 0.5) {
-                    existing.coordinate = simCoord
-                }
+                existing.coordinate = simCoord
             } else {
                 let vehicleAnn = MovingVehicleAnnotation(coordinate: simCoord)
                 mapView.addAnnotation(vehicleAnn)
@@ -93,6 +99,8 @@ struct CustomMapView: UIViewRepresentable {
 
     class Coordinator: NSObject, MKMapViewDelegate {
         var parent: CustomMapView
+        var lastWaypoints: [RouteWaypoint] = []
+        var lastRouteMode: Bool = false
 
         init(_ parent: CustomMapView) {
             self.parent = parent

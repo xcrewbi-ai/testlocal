@@ -60,8 +60,7 @@ struct LocSimView: View {
             )
             .ignoresSafeArea(edges: .bottom)
             .onAppear {
-                CLLocationManager().requestAlwaysAuthorization()
-                LocationModel().requestAuthorisation()
+                LocationModel().requestAuthorisation(always: true)
             }
 
             if mode == .route {
