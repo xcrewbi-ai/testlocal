@@ -304,19 +304,51 @@ struct LocSimView: View {
 
     private var actionButtonsRow: some View {
         HStack(spacing: 8) {
-            // Clear button
-            Button(action: {
-                routeEngine.clearRoute()
-            }) {
-                Label("Xóa", systemImage: "trash")
-                    .font(.caption)
+            // Nút chuyển đổi Xóa / Hoàn thành:
+            // Cùng chức năng lưu vị trí cuối cùng và xóa tuyến đường.
+            // - Khi đang chạy: hiện nút "Hoàn thành"
+            // - Khi đang thiết lập chưa chạy: hiện nút "Xóa"
+            if routeEngine.isSimulating {
+                Button(action: {
+                    routeEngine.completeRouteAndClear()
+                    AlertKitAPI.present(
+                        title: "Đã hoàn thành!",
+                        icon: .done,
+                        style: .iOS17AppleMusic,
+                        haptic: .success
+                    )
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "flag.checkered")
+                        Text("Hoàn thành")
+                    }
+                    .font(.caption.bold())
+                    .foregroundColor(.white)
                     .padding(.vertical, 7)
-                    .padding(.horizontal, 8)
-                    .background(Color(.systemGray5))
-                    .foregroundColor(.red)
+                    .padding(.horizontal, 9)
+                    .background(Color.blue)
                     .cornerRadius(8)
+                }
+            } else {
+                Button(action: {
+                    routeEngine.clearRoute()
+                    AlertKitAPI.present(
+                        title: "Đã xóa tuyến đường!",
+                        icon: .done,
+                        style: .iOS17AppleMusic,
+                        haptic: .success
+                    )
+                }) {
+                    Label("Xóa", systemImage: "trash")
+                        .font(.caption)
+                        .padding(.vertical, 7)
+                        .padding(.horizontal, 8)
+                        .background(Color(.systemGray5))
+                        .foregroundColor(.red)
+                        .cornerRadius(8)
+                }
+                .disabled(routeEngine.waypoints.isEmpty)
             }
-            .disabled(routeEngine.waypoints.isEmpty)
 
             // Undo last point
             Button(action: {
@@ -353,30 +385,6 @@ struct LocSimView: View {
             }
 
             Spacer()
-
-            // "Hoàn thành" button: pins final/current position and clears route lines
-            if !routeEngine.waypoints.isEmpty || routeEngine.isSimulating {
-                Button(action: {
-                    routeEngine.completeRouteAndClear()
-                    AlertKitAPI.present(
-                        title: "Đã hoàn thành!",
-                        icon: .done,
-                        style: .iOS17AppleMusic,
-                        haptic: .success
-                    )
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "flag.checkered")
-                        Text("Hoàn thành")
-                    }
-                    .font(.caption.bold())
-                    .foregroundColor(.white)
-                    .padding(.vertical, 7)
-                    .padding(.horizontal, 9)
-                    .background(Color.blue)
-                    .cornerRadius(8)
-                }
-            }
 
             // Start / Pause / Resume button
             if !routeEngine.isSimulating {

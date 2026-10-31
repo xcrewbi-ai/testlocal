@@ -103,26 +103,16 @@ final class RouteSimulationEngine: ObservableObject {
         updateETA()
     }
 
+    /// Clears the route lines and waypoints while ALWAYS preserving fake GPS at the current/final location.
+    /// Under the core principle: never revert to real GPS unless the master stop button is pressed.
     func clearRoute() {
-        stopSimulation()
-        waypoints.removeAll()
-        segments.removeAll()
-        totalDistanceMeters = 0.0
-        distanceCoveredMeters = 0.0
-        progressPercent = 0.0
-        currentCoordinate = nil
-        currentSegmentIndex = 0
-        updateETA()
-    }
-
-    /// Completes the route: pins simulated GPS at current/final position and clears all route lines
-    func completeRouteAndClear() {
         stopTimer()
         isSimulating = false
         isPaused = false
         currentSpeedKmh = 0.0
 
-        let finalCoord = currentCoordinate ?? waypoints.last?.coordinate
+        // Retain the last known position so device never reverts to real GPS
+        let finalCoord = currentCoordinate ?? waypoints.last?.coordinate ?? waypoints.first?.coordinate
         if let final = finalCoord {
             currentCoordinate = final
             sendSimulatedLocation(coordinate: final, course: 0.0, speed: 0.0)
@@ -137,6 +127,13 @@ final class RouteSimulationEngine: ObservableObject {
         distanceAlongCurrentSegment = 0.0
 
         updateETA()
+        // NOTE: LocSimManager.stopLocSim() is deliberately NOT called here!
+        // Fake GPS remains permanently locked at finalCoord.
+    }
+
+    /// Completes the route early: identical to clearRoute().
+    func completeRouteAndClear() {
+        clearRoute()
     }
 
     func recalculateSegments() {
@@ -229,7 +226,7 @@ final class RouteSimulationEngine: ObservableObject {
         isSimulating = true
         isPaused = false
 
-        if currentCoordinate == nil, let firstCoord = waypoints.first?.coordinate {
+        if currentCoordinate == nil || (currentSegmentIndex == 0 && distanceAlongCurrentSegment == 0.0), let firstCoord = waypoints.first?.coordinate {
             currentCoordinate = firstCoord
             sendSimulatedLocation(coordinate: firstCoord, course: 0.0, speed: 0.0)
         }
