@@ -2,13 +2,12 @@
 //  RouteSimulationEngine.swift
 //  Geranium (CompassPro)
 //
-//  Upgraded Route Simulation Engine:
-//  - Clean foreground execution without CLLocationManager conflicts
-//  - Background audio persistence on didEnterBackground
-//  - Global adjustable base speed (km/h) & variance (+- km/h) on the fly
-//  - Segment-by-segment custom speed configuration (multi-select / individual)
-//  - Corner deceleration down to 40% on sharp turns (0° to 120° / heading change >= 35°)
-//  - Estimated Time of Arrival (ETA) duration and arrival clock time
+//  Clean Foreground Route Simulation Engine:
+//  - 100% stable, zero background conflicts
+//  - Live adjustable speed (km/h) & variance on the fly
+//  - Segment-by-segment custom speed configuration
+//  - Corner deceleration down to 40% on sharp turns (0° to 120°)
+//  - Estimated Time of Arrival (ETA) duration and arrival clock
 //  - Lateral drift +-2m orthogonal to route
 //  - Pins simulated GPS location at destination upon completion
 //
@@ -16,8 +15,6 @@
 import Foundation
 import CoreLocation
 import Combine
-import UIKit
-import AVFoundation
 
 struct RouteWaypoint: Identifiable, Equatable {
     let id: UUID
@@ -42,11 +39,10 @@ struct RouteSegment: Identifiable, Equatable {
     var distanceMeters: Double
     var customSpeedKmh: Double? // nil = use globalBaseSpeedKmh
     var customVarianceKmh: Double? // nil = use globalSpeedVarianceKmh
-    var turnAngleDegrees: Double // turn angle at start of segment
-    var isSharpTurn: Bool // turn angle >= 35° (corner angle 0° to 120°)
+    var isSharpTurn: Bool // corner 0° to 120° (heading turn >= 35°)
 }
 
-class RouteSimulationEngine: NSObject, ObservableObject {
+class RouteSimulationEngine: ObservableObject {
     static let shared = RouteSimulationEngine()
 
     // MARK: - Published Properties
@@ -78,108 +74,10 @@ class RouteSimulationEngine: NSObject, ObservableObject {
     private let tickIntervalSeconds: Double = 1.0
     private let earthRadiusMeters = 6378137.0
 
-    // Background Audio Helper (active only when app is backgrounded)
-    private var silentAudioPlayer: AVAudioPlayer?
-
     // Altitude to apply during route simulation
     var simulationAltitude: Double = 0.0
 
-    private override init() {
-        super.init()
-        setupBackgroundObservers()
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    // MARK: - Background Persistence Observers
-
-    private func setupBackgroundObservers() {
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleDidEnterBackground),
-            name: UIApplication.didEnterBackgroundNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleWillEnterForeground),
-            name: UIApplication.willEnterForegroundNotification,
-            object: nil
-        )
-    }
-
-    @objc private func handleDidEnterBackground() {
-        guard isSimulating, !isPaused else { return }
-        startSilentAudio()
-    }
-
-    @objc private func handleWillEnterForeground() {
-        stopSilentAudio()
-    }
-
-    private func startSilentAudio() {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self else { return }
-            do {
-                try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-                try AVAudioSession.sharedInstance().setActive(true)
-                let audioData = self.createSilentWAVData()
-                let player = try AVAudioPlayer(data: audioData)
-                player.numberOfLoops = -1
-                player.volume = 0.01
-                player.prepareToPlay()
-                player.play()
-                DispatchQueue.main.async {
-                    self.silentAudioPlayer = player
-                }
-            } catch {
-                print("Background audio error: \(error)")
-            }
-        }
-    }
-
-    private func stopSilentAudio() {
-        silentAudioPlayer?.stop()
-        silentAudioPlayer = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
-    }
-
-    private func createSilentWAVData() -> Data {
-        let sampleRate: Int32 = 8000
-        let numChannels: Int16 = 1
-        let bitsPerSample: Int16 = 16
-        let durationSeconds = 1
-        let numSamples = Int(sampleRate) * durationSeconds
-        let dataSize = Int32(numSamples * Int(numChannels) * Int(bitsPerSample / 8))
-        let fileSize = 36 + dataSize
-
-        var data = Data()
-        data.append(contentsOf: [0x52, 0x49, 0x46, 0x46]) // "RIFF"
-        var fileSizeLE = fileSize.littleEndian
-        data.append(Data(bytes: &fileSizeLE, count: 4))
-        data.append(contentsOf: [0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20]) // "WAVEfmt "
-        var subchunk1Size: Int32 = 16
-        data.append(Data(bytes: &subchunk1Size, count: 4))
-        var audioFormat: Int16 = 1 // PCM
-        data.append(Data(bytes: &audioFormat, count: 2))
-        var channels = numChannels.littleEndian
-        data.append(Data(bytes: &channels, count: 2))
-        var sRate = sampleRate.littleEndian
-        data.append(Data(bytes: &sRate, count: 4))
-        var byteRate = (sampleRate * Int32(numChannels) * Int32(bitsPerSample / 8)).littleEndian
-        data.append(Data(bytes: &byteRate, count: 4))
-        var blockAlign = (numChannels * (bitsPerSample / 8)).littleEndian
-        data.append(Data(bytes: &blockAlign, count: 2))
-        var bps = bitsPerSample.littleEndian
-        data.append(Data(bytes: &bps, count: 2))
-        data.append(contentsOf: [0x64, 0x61, 0x74, 0x61]) // "data"
-        var dSize = dataSize.littleEndian
-        data.append(Data(bytes: &dSize, count: 4))
-        data.append(Data(count: Int(dataSize)))
-        return data
-    }
+    private init() {}
 
     // MARK: - Waypoint & Segment Management
 
@@ -229,7 +127,6 @@ class RouteSimulationEngine: NSObject, ObservableObject {
             totalDist += segDist
 
             // Calculate turn angle at start of segment (waypoint i)
-            var turnAngle: Double = 0.0
             var isSharp: Bool = false
             if i > 0 {
                 let p0 = waypoints[i - 1].coordinate
@@ -237,12 +134,11 @@ class RouteSimulationEngine: NSObject, ObservableObject {
                 let bCur = calculateBearing(from: p1, to: p2)
                 var diff = abs(bCur - bPrev).truncatingRemainder(dividingBy: 360.0)
                 if diff > 180.0 { diff = 360.0 - diff }
-                turnAngle = diff
-                // Sharp turn: heading change between 35° and 180°
-                isSharp = turnAngle >= 35.0
+                // Sharp turn: heading turn >= 35° (interior angle 0° to 145°)
+                isSharp = diff >= 35.0
             }
 
-            // Preserve previous customization if present
+            // Preserve existing customization if present
             var existingSpeed: Double? = nil
             var existingVariance: Double? = nil
             if i < segments.count {
@@ -257,7 +153,6 @@ class RouteSimulationEngine: NSObject, ObservableObject {
                 distanceMeters: segDist,
                 customSpeedKmh: existingSpeed,
                 customVarianceKmh: existingVariance,
-                turnAngleDegrees: turnAngle,
                 isSharpTurn: isSharp
             ))
         }
@@ -274,14 +169,6 @@ class RouteSimulationEngine: NSObject, ObservableObject {
                 segments[idx].customSpeedKmh = speedKmh
                 segments[idx].customVarianceKmh = varianceKmh
             }
-        }
-        updateETA()
-    }
-
-    func resetAllSegmentSpeeds() {
-        for i in 0..<segments.count {
-            segments[i].customSpeedKmh = nil
-            segments[i].customVarianceKmh = nil
         }
         updateETA()
     }
@@ -311,7 +198,6 @@ class RouteSimulationEngine: NSObject, ObservableObject {
         guard isSimulating, !isPaused else { return }
         isPaused = true
         stopTimer()
-        stopSilentAudio()
     }
 
     func resumeSimulation() {
@@ -322,7 +208,6 @@ class RouteSimulationEngine: NSObject, ObservableObject {
 
     func stopSimulation() {
         stopTimer()
-        stopSilentAudio()
         isSimulating = false
         isPaused = false
         distanceCoveredMeters = 0.0
@@ -336,7 +221,6 @@ class RouteSimulationEngine: NSObject, ObservableObject {
 
     func finishRouteAtDestination() {
         stopTimer()
-        stopSilentAudio()
         isSimulating = false
         isPaused = false
         currentSpeedKmh = 0.0
@@ -346,7 +230,7 @@ class RouteSimulationEngine: NSObject, ObservableObject {
             currentCoordinate = destination
         }
         updateETA()
-        // Notice: LocSimManager.stopLocSim() is NOT called! Keeps location permanently pinned.
+        // Notice: LocSimManager.stopLocSim() is NOT called! Keeps location pinned at destination.
     }
 
     // MARK: - Timer & Movement Logic
@@ -368,77 +252,47 @@ class RouteSimulationEngine: NSObject, ObservableObject {
         timer = nil
     }
 
-    // MARK: - Corner Braking & Speed Calculation
-
-    private func computeTargetSpeedForCurrentPosition() -> (targetSpeed: Double, variance: Double) {
-        guard currentSegmentIndex < segments.count else {
-            return (globalBaseSpeedKmh, globalSpeedVarianceKmh)
-        }
-
-        let curSeg = segments[currentSegmentIndex]
-        let base = curSeg.customSpeedKmh ?? globalBaseSpeedKmh
-        let variance = curSeg.customVarianceKmh ?? globalSpeedVarianceKmh
-
-        var cornerFactor = 1.0
-
-        // 1. Approach to corner at end of this segment:
-        if currentSegmentIndex + 1 < segments.count {
-            let nextSeg = segments[currentSegmentIndex + 1]
-            if nextSeg.isSharpTurn {
-                let distToEnd = max(0.0, curSeg.distanceMeters - distanceAlongCurrentSegment)
-                let brakingZone: Double = 30.0 // meters before corner
-                if distToEnd <= brakingZone {
-                    // Decelerate down to 40% (0.4) at the corner waypoint
-                    let progressInBraking = distToEnd / brakingZone
-                    let factor = 0.4 + (0.6 * progressInBraking)
-                    cornerFactor = min(cornerFactor, factor)
-                }
-            }
-        }
-
-        // 2. Exit from corner at start of this segment:
-        if curSeg.isSharpTurn {
-            let distFromStart = distanceAlongCurrentSegment
-            let accelerationZone: Double = 20.0 // meters after corner
-            if distFromStart <= accelerationZone {
-                // Accelerate from 40% (0.4) back to 100% (1.0)
-                let progressInAccel = distFromStart / accelerationZone
-                let factor = 0.4 + (0.6 * progressInAccel)
-                cornerFactor = min(cornerFactor, factor)
-            }
-        }
-
-        let targetSpeed = max(5.0, base * cornerFactor)
-        return (targetSpeed, variance * cornerFactor)
-    }
-
     private func simulationTick() {
         guard isSimulating, !isPaused, waypoints.count >= 2 else { return }
 
-        // Compute current target speed (accounting for segment custom speed & corner deceleration)
-        let (targetSpeed, variance) = computeTargetSpeedForCurrentPosition()
+        // 1. Target speed & variance based on current segment
+        let curSeg = (currentSegmentIndex < segments.count) ? segments[currentSegmentIndex] : nil
+        let baseSpeed = curSeg?.customSpeedKmh ?? globalBaseSpeedKmh
+        let variance = curSeg?.customVarianceKmh ?? globalSpeedVarianceKmh
 
-        // Fluctuate within [targetSpeed - variance ... targetSpeed + variance]
-        let minSpeed = max(5.0, targetSpeed - variance)
-        let maxSpeed = targetSpeed + variance
-        let randomTarget = Double.random(in: minSpeed...maxSpeed)
+        // 2. Corner deceleration down to 40% on sharp corners (0° to 120°)
+        var cornerFactor = 1.0
+        if currentSegmentIndex + 1 < segments.count && segments[currentSegmentIndex + 1].isSharpTurn {
+            let distToEnd = max(0.0, (curSeg?.distanceMeters ?? 50.0) - distanceAlongCurrentSegment)
+            if distToEnd <= 25.0 {
+                // Decelerate down to 40% (0.4) approaching corner
+                cornerFactor = 0.4 + (0.6 * (distToEnd / 25.0))
+            }
+        } else if curSeg?.isSharpTurn == true && distanceAlongCurrentSegment <= 15.0 {
+            // Accelerate from 40% (0.4) back to 100% exiting corner
+            cornerFactor = 0.4 + (0.6 * (distanceAlongCurrentSegment / 15.0))
+        }
 
-        // Smooth transition towards randomTarget (max 2.5 km/h per second)
-        let delta = randomTarget - currentSpeedKmh
-        let maxStep = 2.5
-        let clampedDelta = max(-maxStep, min(maxStep, delta))
-        let newSpeed = max(3.0, currentSpeedKmh + clampedDelta)
+        let targetSpeed = max(5.0, baseSpeed * cornerFactor)
+        let targetVariance = variance * cornerFactor
 
-        // Convert to m/s
+        // 3. Smooth momentum acceleration (same proven formula as original 2e14e80)
+        let deltaV = Double.random(in: -1.2...1.2)
+        var newSpeed = currentSpeedKmh + deltaV
+        let minV = max(3.0, targetSpeed - targetVariance)
+        let maxV = targetSpeed + targetVariance
+        newSpeed = max(minV, min(maxV, newSpeed))
+
+        // Convert speed to m/s
         let speedMps = newSpeed / 3.6
         let stepDistance = speedMps * tickIntervalSeconds
 
-        // Advance along route
+        // 4. Advance along route
         advanceDistance(stepDistance, speedKmh: newSpeed, speedMps: speedMps)
     }
 
     private func advanceDistance(_ stepDistance: Double, speedKmh: Double, speedMps: Double) {
-        if currentSegmentIndex >= waypoints.count - 1 {
+        guard currentSegmentIndex < waypoints.count - 1 else {
             // Reached the end of route
             if isLooping {
                 currentSegmentIndex = 0
@@ -490,7 +344,7 @@ class RouteSimulationEngine: NSObject, ObservableObject {
             }
         }
 
-        // Compute intermediate position on current segment with +-2m lateral drift
+        // 5. Compute intermediate position on current segment with +-2m lateral drift
         let currentStart = waypoints[currentSegmentIndex].coordinate
         let currentEnd = waypoints[currentSegmentIndex + 1].coordinate
         let currentSegmentLen = CLLocation(latitude: currentStart.latitude, longitude: currentStart.longitude)
@@ -512,10 +366,10 @@ class RouteSimulationEngine: NSObject, ObservableObject {
 
         let bearing = calculateBearing(from: currentStart, to: currentEnd)
 
-        // Send to LocSimManager
+        // 6. Send to LocSimManager
         sendSimulatedLocation(coordinate: computedCoord, course: bearing, speed: speedMps)
 
-        // Update main thread state & ETA
+        // 7. Update main thread state & ETA
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             self.currentSpeedKmh = speedKmh
@@ -558,27 +412,8 @@ class RouteSimulationEngine: NSObject, ObservableObject {
             return
         }
 
-        var remainingSeconds: Double = 0.0
-        if currentSegmentIndex < segments.count {
-            // Remainder of current segment
-            let curSeg = segments[currentSegmentIndex]
-            let curSpeed = (curSeg.customSpeedKmh ?? globalBaseSpeedKmh) / 3.6
-            let curRemainDist = max(0.0, curSeg.distanceMeters - distanceAlongCurrentSegment)
-            remainingSeconds += (curRemainDist / max(1.0, curSpeed))
-
-            // Subsequent segments
-            if currentSegmentIndex + 1 < segments.count {
-                for i in (currentSegmentIndex + 1)..<segments.count {
-                    let seg = segments[i]
-                    let spd = (seg.customSpeedKmh ?? globalBaseSpeedKmh) / 3.6
-                    remainingSeconds += (seg.distanceMeters / max(1.0, spd))
-                }
-            }
-        } else {
-            let spd = max(5.0, currentSpeedKmh) / 3.6
-            remainingSeconds = remainingDistance / spd
-        }
-
+        let spd = max(5.0, currentSpeedKmh) / 3.6
+        let remainingSeconds = remainingDistance / spd
         self.etaRemainingSeconds = remainingSeconds
 
         let totalSecs = Int(remainingSeconds)

@@ -11,32 +11,28 @@ import CoreLocation
 class LocSimManager {
     static let simManager = CLSimulationManager()
     
-    /// Updates timezone asynchronously (0 = non-blocking)
-    static func post_required_timezone_update() {
-        CFNotificationCenterPostNotificationWithOptions(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            .init("AutomaticTimeZoneUpdateNeeded" as CFString),
-            nil,
-            nil,
-            0
-        )
+    /// Updates timezone
+    static func post_required_timezone_update(){
+        CFNotificationCenterPostNotificationWithOptions(CFNotificationCenterGetDarwinNotifyCenter(), .init("AutomaticTimeZoneUpdateNeeded" as CFString), nil, nil, kCFNotificationDeliverImmediately);
     }
     
-    /// Starts location simulation for the given location
+    /// Starts a location simulation of specified argument "location"
+    // TODO: save
     static func startLocSim(location: CLLocation) {
         simManager.stopLocationSimulation()
         simManager.clearSimulatedLocations()
         simManager.appendSimulatedLocation(location)
         simManager.flush()
         simManager.startLocationSimulation()
+        post_required_timezone_update();
     }
     
     /// Stops location simulation
-    static func stopLocSim() {
+    static func stopLocSim(){
         simManager.stopLocationSimulation()
         simManager.clearSimulatedLocations()
         simManager.flush()
-        post_required_timezone_update()
+        post_required_timezone_update();
     }
 }
 

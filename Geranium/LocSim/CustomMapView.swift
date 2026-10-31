@@ -23,7 +23,7 @@ class WaypointAnnotation: NSObject, MKAnnotation {
 }
 
 class MovingVehicleAnnotation: NSObject, MKAnnotation {
-    @objc dynamic var coordinate: CLLocationCoordinate2D
+    dynamic var coordinate: CLLocationCoordinate2D
     let title: String?
 
     init(coordinate: CLLocationCoordinate2D) {
@@ -54,24 +54,21 @@ struct CustomMapView: UIViewRepresentable {
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.parent = self
 
-        // Only update polyline and waypoint annotations when waypoints change
-        if waypoints.count != context.coordinator.lastWaypointCount || mapView.overlays.isEmpty {
-            context.coordinator.lastWaypointCount = waypoints.count
+        // Update overlays (Polyline)
+        mapView.removeOverlays(mapView.overlays)
+        if waypoints.count >= 2 {
+            let coords = waypoints.map { $0.coordinate }
+            let polyline = MKPolyline(coordinates: coords, count: coords.count)
+            mapView.addOverlay(polyline)
+        }
 
-            mapView.removeOverlays(mapView.overlays)
-            if waypoints.count >= 2 {
-                let coords = waypoints.map { $0.coordinate }
-                let polyline = MKPolyline(coordinates: coords, count: coords.count)
-                mapView.addOverlay(polyline)
-            }
+        // Update waypoint annotations
+        let existingWaypointAnns = mapView.annotations.compactMap { $0 as? WaypointAnnotation }
+        mapView.removeAnnotations(existingWaypointAnns)
 
-            let existingWaypointAnns = mapView.annotations.compactMap { $0 as? WaypointAnnotation }
-            mapView.removeAnnotations(existingWaypointAnns)
-
-            if isRouteMode || !waypoints.isEmpty {
-                let newAnns = waypoints.map { WaypointAnnotation(coordinate: $0.coordinate, order: $0.order) }
-                mapView.addAnnotations(newAnns)
-            }
+        if isRouteMode || !waypoints.isEmpty {
+            let newAnns = waypoints.map { WaypointAnnotation(coordinate: $0.coordinate, order: $0.order) }
+            mapView.addAnnotations(newAnns)
         }
 
         // Update moving vehicle annotation
@@ -96,7 +93,6 @@ struct CustomMapView: UIViewRepresentable {
 
     class Coordinator: NSObject, MKMapViewDelegate {
         var parent: CustomMapView
-        var lastWaypointCount: Int = -1
 
         init(_ parent: CustomMapView) {
             self.parent = parent
