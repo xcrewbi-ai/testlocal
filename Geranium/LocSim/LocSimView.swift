@@ -74,7 +74,7 @@ struct LocSimView: View {
             SegmentSpeedSheet(routeEngine: routeEngine)
         }
         .sheet(isPresented: $bookmarkSheetTggle) {
-            BookMarkSlider(lat: , long: )
+            BookMarkSlider(lat: $lat, long: $long)
         }
         .onChange(of: tappedCoordinate) { newValue in
             guard let coord = newValue?.coordinate else { return }
@@ -174,8 +174,7 @@ struct LocSimView: View {
                     .foregroundColor(.secondary)
                 HStack(spacing: 2) {
                     Text(String(format: "%.1f", routeEngine.currentSpeedKmh))
-                        .font(.headline)
-                        .bold()
+                        .font(.headline.bold())
                     Text("km/h")
                         .font(.caption2)
                         .foregroundColor(.secondary)
@@ -189,8 +188,7 @@ struct LocSimView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
                 Text(formatDistance(routeEngine.totalDistanceMeters))
-                    .font(.subheadline)
-                    .bold()
+                    .font(.subheadline.bold())
             }
 
             Divider().frame(height: 24)
@@ -200,8 +198,7 @@ struct LocSimView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
                 Text("\(routeEngine.waypoints.count)")
-                    .font(.subheadline)
-                    .bold()
+                    .font(.subheadline.bold())
             }
 
             Spacer()
@@ -232,8 +229,7 @@ struct LocSimView: View {
                 .foregroundColor(.secondary)
 
             Text(routeEngine.etaFormattedDuration)
-                .font(.caption)
-                .bold()
+                .font(.caption.bold())
                 .foregroundColor(.primary)
 
             Text("• Đến: \(routeEngine.etaArrivalTimeString)")
@@ -244,8 +240,7 @@ struct LocSimView: View {
 
             let remainDist = max(0.0, routeEngine.totalDistanceMeters - routeEngine.distanceCoveredMeters)
             Text("Còn \(formatDistance(remainDist))")
-                .font(.caption2)
-                .bold()
+                .font(.caption2.bold())
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(Color.blue.opacity(0.1))
@@ -270,8 +265,7 @@ struct LocSimView: View {
                 routeEngine.updateETA()
             }) {
                 Text("-5")
-                    .font(.caption2)
-                    .bold()
+                    .font(.caption2.bold())
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
                     .background(Color(.systemGray5))
@@ -288,8 +282,7 @@ struct LocSimView: View {
                 routeEngine.updateETA()
             }) {
                 Text("+5")
-                    .font(.caption2)
-                    .bold()
+                    .font(.caption2.bold())
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
                     .background(Color(.systemGray5))
@@ -297,8 +290,7 @@ struct LocSimView: View {
             }
 
             Text("\(Int(routeEngine.globalBaseSpeedKmh)) km/h")
-                .font(.caption)
-                .bold()
+                .font(.caption.bold())
                 .frame(width: 55, alignment: .trailing)
         }
         .padding(.horizontal, 12)
@@ -358,8 +350,7 @@ struct LocSimView: View {
                         Image(systemName: "play.fill")
                         Text("Chạy")
                     }
-                    .font(.subheadline)
-                    .bold()
+                    .font(.subheadline.bold())
                     .foregroundColor(.white)
                     .padding(.vertical, 7)
                     .padding(.horizontal, 16)
@@ -379,8 +370,7 @@ struct LocSimView: View {
                         Image(systemName: routeEngine.isPaused ? "play.fill" : "pause.fill")
                         Text(routeEngine.isPaused ? "Tiếp tục" : "Tạm dừng")
                     }
-                    .font(.subheadline)
-                    .bold()
+                    .font(.subheadline.bold())
                     .foregroundColor(.white)
                     .padding(.vertical, 7)
                     .padding(.horizontal, 14)
@@ -535,8 +525,7 @@ struct SegmentSpeedSheet: View {
                                     let isCustom = seg.customSpeedKmh != nil
 
                                     Text("\(Int(speed)) ± \(Int(variance)) km/h")
-                                        .font(.caption)
-                                        .bold()
+                                        .font(.caption.bold())
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
                                         .background(isCustom ? Color.blue.opacity(0.15) : Color.gray.opacity(0.15))
@@ -545,15 +534,13 @@ struct SegmentSpeedSheet: View {
 
                                     if isCustom {
                                         Text("Riêng")
-                                            .font(.caption2)
-                                            .bold()
+                                            .font(.caption2.bold())
                                             .foregroundColor(.blue)
                                     }
 
                                     if seg.isSharpTurn {
                                         Text("Khúc cua \(Int(seg.turnAngleDegrees))° (Giảm 40%)")
-                                            .font(.caption2)
-                                            .bold()
+                                            .font(.caption2.bold())
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2)
                                             .background(Color.orange.opacity(0.15))
@@ -577,14 +564,12 @@ struct SegmentSpeedSheet: View {
 
                 VStack(spacing: 10) {
                     Text(selectedSegmentIndices.isEmpty ? "Chọn đoạn ở trên để điều chỉnh" : "Đã chọn \(selectedSegmentIndices.count) đoạn")
-                        .font(.subheadline)
-                        .bold()
+                        .font(.subheadline.bold())
                         .foregroundColor(selectedSegmentIndices.isEmpty ? .secondary : .primary)
 
                     HStack {
                         Text("Tốc độ:")
-                            .font(.caption)
-                            .bold()
+                            .font(.caption.bold())
                         Button("- 5") { targetSpeed = max(10, targetSpeed - 5) }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -600,15 +585,13 @@ struct SegmentSpeedSheet: View {
                             .cornerRadius(4)
 
                         Text("\(Int(targetSpeed)) km/h")
-                            .font(.caption)
-                            .bold()
+                            .font(.caption.bold())
                             .frame(width: 55, alignment: .trailing)
                     }
 
                     HStack {
                         Text("Độ lệch:")
-                            .font(.caption)
-                            .bold()
+                            .font(.caption.bold())
                         Button("- 1") { targetVariance = max(0, targetVariance - 1) }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -624,8 +607,7 @@ struct SegmentSpeedSheet: View {
                             .cornerRadius(4)
 
                         Text("±\(Int(targetVariance)) km/h")
-                            .font(.caption)
-                            .bold()
+                            .font(.caption.bold())
                             .frame(width: 55, alignment: .trailing)
                     }
 
@@ -646,8 +628,7 @@ struct SegmentSpeedSheet: View {
                             routeEngine.setSpeedForSegments(indices: selectedSegmentIndices, speedKmh: targetSpeed, varianceKmh: targetVariance)
                             selectedSegmentIndices.removeAll()
                         }
-                        .font(.subheadline)
-                        .bold()
+                        .font(.subheadline.bold())
                         .foregroundColor(.white)
                         .padding(.vertical, 8)
                         .frame(maxWidth: .infinity)
