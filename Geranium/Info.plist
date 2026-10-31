@@ -7,7 +7,7 @@
 	<key>CFBundleName</key>
 	<string>CompassPro</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.apple.compasspro</string>
+	<string>com.compasspro.app</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

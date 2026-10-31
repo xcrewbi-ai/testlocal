@@ -8,7 +8,7 @@ WORKING_LOCATION="$(pwd)"
 APPLICATION_NAME=Geranium
 NEW_NAME="CompassPro"
 NEW_DISPLAY_NAME="Compass Pro"
-NEW_BUNDLE_ID="com.apple.compasspro"
+NEW_BUNDLE_ID="com.compasspro.app"
 CONFIGURATION=Release
 
 rm -rf build
