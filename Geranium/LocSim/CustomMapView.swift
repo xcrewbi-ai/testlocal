@@ -1,15 +1,14 @@
 //
 //  CustomMapView.swift
-//  Geranium
+//  Geranium (CompassPro)
 //
-//  Created by cclerc on 21.12.23.
-//  Updated for Route Drawing, Waypoints, and Moving Marker display.
+//  High-Performance MapKit Component for Route Simulation & Vehicle Tracking.
 //
 
 import SwiftUI
 import MapKit
 
-class WaypointAnnotation: NSObject, MKAnnotation {
+final class WaypointAnnotation: NSObject, MKAnnotation {
     let coordinate: CLLocationCoordinate2D
     let title: String?
     let order: Int
@@ -17,18 +16,18 @@ class WaypointAnnotation: NSObject, MKAnnotation {
     init(coordinate: CLLocationCoordinate2D, order: Int) {
         self.coordinate = coordinate
         self.order = order
-        self.title = "Point \(order)"
+        self.title = "Điểm \(order)"
         super.init()
     }
 }
 
-class MovingVehicleAnnotation: NSObject, MKAnnotation {
-    dynamic var coordinate: CLLocationCoordinate2D
+final class MovingVehicleAnnotation: NSObject, MKAnnotation {
+    @objc dynamic var coordinate: CLLocationCoordinate2D
     let title: String?
 
     init(coordinate: CLLocationCoordinate2D) {
         self.coordinate = coordinate
-        self.title = "Current Position"
+        self.title = "Vị trí đang chạy"
         super.init()
     }
 }
@@ -54,28 +53,33 @@ struct CustomMapView: UIViewRepresentable {
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.parent = self
 
-        // Update overlays (Polyline)
-        mapView.removeOverlays(mapView.overlays)
-        if waypoints.count >= 2 {
-            let coords = waypoints.map { $0.coordinate }
-            let polyline = MKPolyline(coordinates: coords, count: coords.count)
-            mapView.addOverlay(polyline)
+        // 1. Overlays and Waypoints: update ONLY when waypoint count or composition changes
+        if context.coordinator.lastWaypointCount != waypoints.count {
+            context.coordinator.lastWaypointCount = waypoints.count
+
+            // Update Polyline
+            mapView.removeOverlays(mapView.overlays)
+            if waypoints.count >= 2 {
+                let coords = waypoints.map { $0.coordinate }
+                let polyline = MKPolyline(coordinates: coords, count: coords.count)
+                mapView.addOverlay(polyline)
+            }
+
+            // Update Waypoint Markers
+            let oldWaypointAnns = mapView.annotations.compactMap { $0 as? WaypointAnnotation }
+            mapView.removeAnnotations(oldWaypointAnns)
+
+            if isRouteMode || !waypoints.isEmpty {
+                let newAnns = waypoints.map { WaypointAnnotation(coordinate: $0.coordinate, order: $0.order) }
+                mapView.addAnnotations(newAnns)
+            }
         }
 
-        // Update waypoint annotations
-        let existingWaypointAnns = mapView.annotations.compactMap { $0 as? WaypointAnnotation }
-        mapView.removeAnnotations(existingWaypointAnns)
-
-        if isRouteMode || !waypoints.isEmpty {
-            let newAnns = waypoints.map { WaypointAnnotation(coordinate: $0.coordinate, order: $0.order) }
-            mapView.addAnnotations(newAnns)
-        }
-
-        // Update moving vehicle annotation
+        // 2. Moving Vehicle Marker: smooth coordinate update without recreating pins
         let existingVehicleAnn = mapView.annotations.first { $0 is MovingVehicleAnnotation } as? MovingVehicleAnnotation
         if let simCoord = currentSimulatedCoord {
             if let existing = existingVehicleAnn {
-                UIView.animate(withDuration: 0.5) {
+                UIView.animate(withDuration: 0.8) {
                     existing.coordinate = simCoord
                 }
             } else {
@@ -93,6 +97,7 @@ struct CustomMapView: UIViewRepresentable {
 
     class Coordinator: NSObject, MKMapViewDelegate {
         var parent: CustomMapView
+        var lastWaypointCount: Int = -1
 
         init(_ parent: CustomMapView) {
             self.parent = parent
@@ -109,7 +114,7 @@ struct CustomMapView: UIViewRepresentable {
             if let polyline = overlay as? MKPolyline {
                 let renderer = MKPolylineRenderer(polyline: polyline)
                 renderer.strokeColor = UIColor.systemBlue
-                renderer.lineWidth = 4.0
+                renderer.lineWidth = 4.5
                 renderer.lineCap = .round
                 renderer.lineJoin = .round
                 return renderer

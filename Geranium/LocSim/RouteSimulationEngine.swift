@@ -2,14 +2,15 @@
 //  RouteSimulationEngine.swift
 //  Geranium (CompassPro)
 //
-//  Clean Foreground Route Simulation Engine:
-//  - 100% stable, zero background conflicts
-//  - Live adjustable speed (km/h) & variance on the fly
-//  - Segment-by-segment custom speed configuration
-//  - Corner deceleration down to 40% on sharp turns (0° to 120°)
-//  - Estimated Time of Arrival (ETA) duration and arrival clock
+//  Re-architected Route Simulation Engine:
+//  - Fully decoupled from Apple internal daemon lifecycle
+//  - Non-blocking location stream via LocSimManager.updateSimulatedLocation
+//  - Real-time adjustable speed in km/h on the fly
+//  - Per-segment speed & variance customization
+//  - 40% corner deceleration on sharp turns (0° to 120°)
+//  - Accurate Estimated Time of Arrival (ETA) duration & arrival clock
 //  - Lateral drift +-2m orthogonal to route
-//  - Pins simulated GPS location at destination upon completion
+//  - Pins simulated location at destination upon completion
 //
 
 import Foundation
@@ -42,7 +43,7 @@ struct RouteSegment: Identifiable, Equatable {
     var isSharpTurn: Bool // corner 0° to 120° (heading turn >= 35°)
 }
 
-class RouteSimulationEngine: ObservableObject {
+final class RouteSimulationEngine: ObservableObject {
     static let shared = RouteSimulationEngine()
 
     // MARK: - Published Properties
@@ -69,6 +70,7 @@ class RouteSimulationEngine: ObservableObject {
 
     // MARK: - Internal Simulation State
     private var timer: DispatchSourceTimer?
+    private let timerQueue = DispatchQueue(label: "com.compasspro.routesim.timer", qos: .userInteractive)
     private var distanceAlongCurrentSegment: Double = 0.0
     private var currentLateralOffset: Double = 0.0
     private let tickIntervalSeconds: Double = 1.0
@@ -134,7 +136,7 @@ class RouteSimulationEngine: ObservableObject {
                 let bCur = calculateBearing(from: p1, to: p2)
                 var diff = abs(bCur - bPrev).truncatingRemainder(dividingBy: 360.0)
                 if diff > 180.0 { diff = 360.0 - diff }
-                // Sharp turn: heading turn >= 35° (interior angle 0° to 145°)
+                // Sharp turn: deflection >= 35° (interior corner 0° to 145°)
                 isSharp = diff >= 35.0
             }
 
@@ -190,6 +192,11 @@ class RouteSimulationEngine: ObservableObject {
         isSimulating = true
         isPaused = false
 
+        if let firstCoord = waypoints.first?.coordinate {
+            currentCoordinate = firstCoord
+            sendSimulatedLocation(coordinate: firstCoord, course: 0.0, speed: 0.0)
+        }
+
         startTimer()
         updateETA()
     }
@@ -228,18 +235,18 @@ class RouteSimulationEngine: ObservableObject {
         distanceCoveredMeters = totalDistanceMeters
         if let destination = waypoints.last?.coordinate {
             currentCoordinate = destination
+            sendSimulatedLocation(coordinate: destination, course: 0.0, speed: 0.0)
         }
         updateETA()
-        // Notice: LocSimManager.stopLocSim() is NOT called! Keeps location pinned at destination.
+        // Crucial: LocSimManager.stopLocSim() is NOT called! Keeps location permanently pinned.
     }
 
     // MARK: - Timer & Movement Logic
 
     private func startTimer() {
         stopTimer()
-        let queue = DispatchQueue(label: "live.cclerc.geranium.routesim", qos: .userInteractive)
-        let newTimer = DispatchSource.makeTimerSource(queue: queue)
-        newTimer.schedule(deadline: .now(), repeating: tickIntervalSeconds)
+        let newTimer = DispatchSource.makeTimerSource(queue: timerQueue)
+        newTimer.schedule(deadline: .now() + tickIntervalSeconds, repeating: tickIntervalSeconds)
         newTimer.setEventHandler { [weak self] in
             self?.simulationTick()
         }
@@ -276,7 +283,7 @@ class RouteSimulationEngine: ObservableObject {
         let targetSpeed = max(5.0, baseSpeed * cornerFactor)
         let targetVariance = variance * cornerFactor
 
-        // 3. Smooth momentum acceleration (same proven formula as original 2e14e80)
+        // 3. Smooth momentum acceleration
         let deltaV = Double.random(in: -1.2...1.2)
         var newSpeed = currentSpeedKmh + deltaV
         let minV = max(3.0, targetSpeed - targetVariance)
@@ -366,7 +373,7 @@ class RouteSimulationEngine: ObservableObject {
 
         let bearing = calculateBearing(from: currentStart, to: currentEnd)
 
-        // 6. Send to LocSimManager
+        // 6. Fast non-blocking update to LocSimManager
         sendSimulatedLocation(coordinate: computedCoord, course: bearing, speed: speedMps)
 
         // 7. Update main thread state & ETA
@@ -391,7 +398,7 @@ class RouteSimulationEngine: ObservableObject {
             speed: speed,
             timestamp: Date()
         )
-        LocSimManager.startLocSim(location: location)
+        LocSimManager.updateSimulatedLocation(location: location)
     }
 
     // MARK: - ETA Calculation

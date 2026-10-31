@@ -2,13 +2,13 @@
 //  LocSimView.swift
 //  Geranium (CompassPro)
 //
-//  Upgraded Fake GPS with Route Simulation:
+//  Re-architected Fake GPS with Route Simulation:
+//  - Clean, responsive UI with zero deadlock risk
 //  - Live adjustable speed on the fly (km/h)
 //  - Estimated Time of Arrival (ETA) duration & arrival clock
 //  - Segment-by-segment speed & variance customizer
 //  - Corner deceleration down to 40% on sharp turns
-//  - Removed route Stop button to avoid accidental presses (master Stop GPS on top bar)
-//  - 100% clean foreground architecture, 0 freeze risk
+//  - Master Stop GPS on top bar (removed accidental Stop in panel)
 //
 
 import SwiftUI
@@ -37,19 +37,19 @@ struct LocSimView: View {
     var body: some View {
         if #available(iOS 16.0, *) {
             NavigationStack {
-                LocSimMainView()
+                contentBody
             }
         } else {
             NavigationView {
-                LocSimMainView()
+                contentBody
             }
         }
     }
 
     @ViewBuilder
-    private func LocSimMainView() -> some View {
+    private var contentBody: some View {
         ZStack(alignment: .bottom) {
-            // Map
+            // Interactive MapKit View
             CustomMapView(
                 tappedCoordinate: $tappedCoordinate,
                 isRouteMode: mode == .route,
@@ -58,28 +58,21 @@ struct LocSimView: View {
             )
             .ignoresSafeArea(edges: .bottom)
             .onAppear {
-                CLLocationManager().requestAlwaysAuthorization()
                 LocationModel().requestAuthorisation()
             }
 
-            // Route Control Bar (shown only when in route mode)
+            // Route Floating Control Bar (shown only when in route mode)
             if mode == .route {
                 RouteControlPanel()
                     .padding(.horizontal, 16)
                     .padding(.bottom, 24)
             }
         }
-        .sheet(isPresented: $showSegmentSheet) {
-            SegmentSpeedSheet(routeEngine: routeEngine)
-        }
-        .sheet(isPresented: $bookmarkSheetTggle) {
-            BookMarkSlider(lat: $lat, long: $long)
-        }
         .onChange(of: tappedCoordinate) { newValue in
             guard let coord = newValue?.coordinate else { return }
             if mode == .single {
                 let altitudeValue = Double(altitude) ?? 0.0
-                startSimulation(at: coord, altitude: altitudeValue)
+                startSingleSimulation(at: coord, altitude: altitudeValue)
             } else {
                 routeEngine.addWaypoint(coord)
             }
@@ -89,7 +82,7 @@ struct LocSimView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                Picker("Mode", selection: $mode) {
+                Picker("Chế độ", selection: $mode) {
                     ForEach(LocSimMode.allCases) { m in
                         Text(m.rawValue).tag(m)
                     }
@@ -100,26 +93,7 @@ struct LocSimView: View {
 
             ToolbarItem(placement: .navigationBarTrailing) {
                 // Manual coordinate entry
-                Button(action: {
-                    UIApplication.shared.TextFieldAlert(
-                        title: "Nhập tọa độ",
-                        message: "Vị trí sẽ được mô phỏng trên toàn hệ thống.\n(Mẹo: Nhấn bất kỳ đâu trên bản đồ để bay tới)",
-                        textFieldPlaceHolder: "Vĩ độ (Latitude)",
-                        secondTextFieldPlaceHolder: "Kinh độ (Longitude)"
-                    ) { latText, longText in
-                        if let latDouble = Double(latText ?? ""), let longDouble = Double(longText ?? "") {
-                            let coordinate = CLLocationCoordinate2D(latitude: latDouble, longitude: longDouble)
-                            let altitudeValue = Double(altitude) ?? 0.0
-                            if mode == .single {
-                                startSimulation(at: coordinate, altitude: altitudeValue)
-                            } else {
-                                routeEngine.addWaypoint(coordinate)
-                            }
-                        } else {
-                            UIApplication.shared.alert(body: "Tọa độ không hợp lệ!")
-                        }
-                    }
-                }) {
+                Button(action: showManualCoordAlert) {
                     Image(systemName: "mappin")
                         .font(.system(size: 16, weight: .semibold))
                 }
@@ -127,18 +101,7 @@ struct LocSimView: View {
 
             ToolbarItem(placement: .navigationBarTrailing) {
                 // Altitude setting
-                Button(action: {
-                    UIApplication.shared.TextFieldAlert(
-                        title: "Cài đặt độ cao",
-                        message: "Nhập độ cao theo đơn vị mét.",
-                        textFieldPlaceHolder: "Độ cao (m)"
-                    ) { altitudeText, _ in
-                        if let altText = altitudeText, !altText.isEmpty {
-                            self.altitude = altText
-                            self.routeEngine.simulationAltitude = Double(altText) ?? 0.0
-                        }
-                    }
-                }) {
+                Button(action: showAltitudeAlert) {
                     Image(systemName: "mountain.2.fill")
                         .font(.system(size: 16, weight: .semibold))
                 }
@@ -169,6 +132,9 @@ struct LocSimView: View {
                     Image(systemName: "bookmark")
                         .font(.system(size: 16, weight: .semibold))
                 }
+                .sheet(isPresented: $bookmarkSheetTggle) {
+                    BookMarkSlider(lat: $lat, long: $long)
+                }
             }
         }
     }
@@ -195,7 +161,7 @@ struct LocSimView: View {
                     .padding(.horizontal, 12)
             }
 
-            // Buttons row (No stop button here to avoid accidental tap)
+            // Buttons row
             actionButtonsRow
         }
         .background(
@@ -382,10 +348,13 @@ struct LocSimView: View {
                 .cornerRadius(8)
             }
             .disabled(routeEngine.waypoints.count < 2)
+            .sheet(isPresented: $showSegmentSheet) {
+                SegmentSpeedSheet(routeEngine: routeEngine)
+            }
 
             Spacer()
 
-            // Start / Pause / Resume button (NO stop button here)
+            // Start / Pause / Resume button
             if !routeEngine.isSimulating {
                 Button(action: {
                     routeEngine.startSimulation()
@@ -436,7 +405,7 @@ struct LocSimView: View {
     }
 
     // MARK: - Simulation Helper
-    private func startSimulation(at coordinate: CLLocationCoordinate2D, altitude: Double) {
+    private func startSingleSimulation(at coordinate: CLLocationCoordinate2D, altitude: Double) {
         self.lat = coordinate.latitude
         self.long = coordinate.longitude
 
@@ -459,16 +428,45 @@ struct LocSimView: View {
 
     private func stopAllSimulation() {
         routeEngine.stopSimulation()
-        if appSettings.locSimMultipleAttempts {
-            var countdown = appSettings.locSimAttemptNB
-            DispatchQueue.global().async {
-                while countdown > 0 {
-                    LocSimManager.stopLocSim()
-                    countdown -= 1
+        LocSimManager.stopLocSim()
+    }
+
+    // MARK: - Alert Dialogs
+    private func showManualCoordAlert() {
+        UIApplication.shared.TextFieldAlert(
+            title: "Nhập tọa độ",
+            message: "Vị trí sẽ được mô phỏng trên toàn hệ thống.\n(Mẹo: Nhấn bất kỳ đâu trên bản đồ để bay tới)",
+            textFieldPlaceHolder: "Vĩ độ (Latitude)",
+            secondTextFieldPlaceHolder: "Kinh độ (Longitude)"
+        ) { latText, longText in
+            if let latDouble = Double(latText ?? ""), let longDouble = Double(longText ?? "") {
+                let coordinate = CLLocationCoordinate2D(latitude: latDouble, longitude: longDouble)
+                let altitudeValue = Double(altitude) ?? 0.0
+                if mode == .single {
+                    startSingleSimulation(at: coordinate, altitude: altitudeValue)
+                } else {
+                    routeEngine.addWaypoint(coordinate)
+                }
+            } else {
+                UIApplication.shared.alert(body: "Tọa độ không hợp lệ!")
+            }
+        }
+    }
+
+    private func showAltitudeAlert() {
+        UIApplication.shared.TextFieldAlert(
+            title: "Cài đặt độ cao",
+            message: "Nhập độ cao theo đơn vị mét.",
+            textFieldPlaceHolder: "Độ cao (m)"
+        ) { altitudeText, _ in
+            if let altText = altitudeText, !altText.isEmpty {
+                self.altitude = altText
+                self.routeEngine.simulationAltitude = Double(altText) ?? 0.0
+                if mode == .single && (lat != 0.0 || long != 0.0) {
+                    let coordinate = CLLocationCoordinate2D(latitude: lat, longitude: long)
+                    startSingleSimulation(at: coordinate, altitude: Double(altText) ?? 0.0)
                 }
             }
-        } else {
-            LocSimManager.stopLocSim()
         }
     }
 }
