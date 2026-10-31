@@ -3,12 +3,14 @@
 //  Geranium (CompassPro)
 //
 //  Upgraded Route Simulation Engine:
-//  - Background execution support (CLLocationManager background updates + silent AVAudioSession loop + UIBackgroundTask)
+//  - Clean foreground execution without CLLocationManager conflicts
+//  - Background audio persistence on didEnterBackground
 //  - Global adjustable base speed (km/h) & variance (+- km/h) on the fly
 //  - Segment-by-segment custom speed configuration (multi-select / individual)
 //  - Corner deceleration down to 40% on sharp turns (0° to 120° / heading change >= 35°)
 //  - Estimated Time of Arrival (ETA) duration and arrival clock time
 //  - Lateral drift +-2m orthogonal to route
+//  - Pins simulated GPS location at destination upon completion
 //
 
 import Foundation
@@ -44,7 +46,7 @@ struct RouteSegment: Identifiable, Equatable {
     var isSharpTurn: Bool // turn angle >= 35° (corner angle 0° to 120°)
 }
 
-class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelegate {
+class RouteSimulationEngine: NSObject, ObservableObject {
     static let shared = RouteSimulationEngine()
 
     // MARK: - Published Properties
@@ -76,68 +78,48 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
     private let tickIntervalSeconds: Double = 1.0
     private let earthRadiusMeters = 6378137.0
 
+    // Background Audio Helper (active only when app is backgrounded)
+    private var silentAudioPlayer: AVAudioPlayer?
+
     // Altitude to apply during route simulation
     var simulationAltitude: Double = 0.0
 
-    // Background Execution Helpers
-    private let locationManager = CLLocationManager()
-    private var silentAudioPlayer: AVAudioPlayer?
-    private var bgTaskId: UIBackgroundTaskIdentifier = .invalid
-
     private override init() {
         super.init()
-        setupLocationManager()
+        setupBackgroundObservers()
     }
 
-    // MARK: - Background Service Management
-
-    private func setupLocationManager() {
-        locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
-        locationManager.distanceFilter = kCLDistanceFilterNone
-        locationManager.requestAlwaysAuthorization()
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        // Keeps iOS background location pipeline active while app is minimized or locked
+    // MARK: - Background Persistence Observers
+
+    private func setupBackgroundObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
     }
 
-    private func startBackgroundServices() {
-        // 1. Location updates for background persistence
-        locationManager.allowsBackgroundLocationUpdates = true
-        locationManager.pausesLocationUpdatesAutomatically = false
-        locationManager.startUpdatingLocation()
-
-        // 2. Silent audio loop
-        setupSilentAudio()
-
-        // 3. UIBackgroundTask
-        startBackgroundTask()
+    @objc private func handleDidEnterBackground() {
+        guard isSimulating, !isPaused else { return }
+        startSilentAudio()
     }
 
-    private func stopBackgroundServices() {
-        locationManager.stopUpdatingLocation()
-        locationManager.allowsBackgroundLocationUpdates = false
+    @objc private func handleWillEnterForeground() {
         stopSilentAudio()
-        endBackgroundTask()
     }
 
-    private func startBackgroundTask() {
-        endBackgroundTask()
-        bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "CompassProBackgroundRoute") { [weak self] in
-            self?.endBackgroundTask()
-        }
-    }
-
-    private func endBackgroundTask() {
-        if bgTaskId != .invalid {
-            let taskId = bgTaskId
-            bgTaskId = .invalid
-            UIApplication.shared.endBackgroundTask(taskId)
-        }
-    }
-
-    private func setupSilentAudio() {
+    private func startSilentAudio() {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             do {
@@ -256,7 +238,7 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
                 var diff = abs(bCur - bPrev).truncatingRemainder(dividingBy: 360.0)
                 if diff > 180.0 { diff = 360.0 - diff }
                 turnAngle = diff
-                // Sharp turn: heading change between 35° and 180° (interior angle 0° to 145°)
+                // Sharp turn: heading change between 35° and 180°
                 isSharp = turnAngle >= 35.0
             }
 
@@ -321,7 +303,6 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
         isSimulating = true
         isPaused = false
 
-        startBackgroundServices()
         startTimer()
         updateETA()
     }
@@ -330,19 +311,18 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
         guard isSimulating, !isPaused else { return }
         isPaused = true
         stopTimer()
-        stopBackgroundServices()
+        stopSilentAudio()
     }
 
     func resumeSimulation() {
         guard isSimulating, isPaused else { return }
         isPaused = false
-        startBackgroundServices()
         startTimer()
     }
 
     func stopSimulation() {
         stopTimer()
-        stopBackgroundServices()
+        stopSilentAudio()
         isSimulating = false
         isPaused = false
         distanceCoveredMeters = 0.0
@@ -356,7 +336,7 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
 
     func finishRouteAtDestination() {
         stopTimer()
-        stopBackgroundServices()
+        stopSilentAudio()
         isSimulating = false
         isPaused = false
         currentSpeedKmh = 0.0
@@ -366,6 +346,7 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
             currentCoordinate = destination
         }
         updateETA()
+        // Notice: LocSimManager.stopLocSim() is NOT called! Keeps location permanently pinned.
     }
 
     // MARK: - Timer & Movement Logic

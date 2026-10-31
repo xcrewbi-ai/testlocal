@@ -8,35 +8,37 @@
 import Foundation
 import CoreLocation
 
-
 class LocSimManager {
     static let simManager = CLSimulationManager()
     
-    /// Updates timezone
-    static func post_required_timezone_update(){
-        CFNotificationCenterPostNotificationWithOptions(CFNotificationCenterGetDarwinNotifyCenter(), .init("AutomaticTimeZoneUpdateNeeded" as CFString), nil, nil, kCFNotificationDeliverImmediately);
+    /// Updates timezone asynchronously (0 = non-blocking)
+    static func post_required_timezone_update() {
+        CFNotificationCenterPostNotificationWithOptions(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            .init("AutomaticTimeZoneUpdateNeeded" as CFString),
+            nil,
+            nil,
+            0
+        )
     }
     
-    /// Starts a location simulation of specified argument "location"
-    // TODO: save
+    /// Starts location simulation for the given location
     static func startLocSim(location: CLLocation) {
         simManager.stopLocationSimulation()
         simManager.clearSimulatedLocations()
         simManager.appendSimulatedLocation(location)
         simManager.flush()
         simManager.startLocationSimulation()
-        post_required_timezone_update();
     }
     
     /// Stops location simulation
-    static func stopLocSim(){
+    static func stopLocSim() {
         simManager.stopLocationSimulation()
         simManager.clearSimulatedLocations()
         simManager.flush()
-        post_required_timezone_update();
+        post_required_timezone_update()
     }
 }
-
 
 struct EquatableCoordinate: Equatable {
     var coordinate: CLLocationCoordinate2D
@@ -45,9 +47,6 @@ struct EquatableCoordinate: Equatable {
         lhs.coordinate.latitude == rhs.coordinate.latitude && lhs.coordinate.longitude == rhs.coordinate.longitude
     }
 }
-
-
-// https://stackoverflow.com/a/75703059
 
 class LocationModel: NSObject, ObservableObject {
     private let locationManager = CLLocationManager()
@@ -68,7 +67,6 @@ class LocationModel: NSObject, ObservableObject {
 }
 
 extension LocationModel: CLLocationManagerDelegate {
-
     func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
         self.authorisationStatus = status
     }
