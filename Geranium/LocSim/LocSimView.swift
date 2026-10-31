@@ -8,6 +8,7 @@
 //  - Segment-by-segment speed & variance customizer
 //  - Corner deceleration down to 40% on sharp turns
 //  - Removed route Stop button to avoid accidental presses (master Stop GPS on top bar)
+//  - 100% iOS 15+ compatible with fast modular compilation
 //
 
 import SwiftUI
@@ -36,19 +37,21 @@ struct LocSimView: View {
     var body: some View {
         if #available(iOS 16.0, *) {
             NavigationStack {
-                LocSimMainView()
+                mainContent
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { navigationToolbar }
             }
         } else {
             NavigationView {
-                LocSimMainView()
+                mainContent
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { navigationToolbar }
             }
         }
     }
 
-    @ViewBuilder
-    private func LocSimMainView() -> some View {
+    private var mainContent: some View {
         ZStack(alignment: .bottom) {
-            // Map
             CustomMapView(
                 tappedCoordinate: $tappedCoordinate,
                 isRouteMode: mode == .route,
@@ -61,7 +64,6 @@ struct LocSimView: View {
                 LocationModel().requestAuthorisation()
             }
 
-            // Route Control Bar (shown only when in route mode)
             if mode == .route {
                 RouteControlPanel()
                     .padding(.horizontal, 16)
@@ -70,6 +72,9 @@ struct LocSimView: View {
         }
         .sheet(isPresented: $showSegmentSheet) {
             SegmentSpeedSheet(routeEngine: routeEngine)
+        }
+        .sheet(isPresented: $bookmarkSheetTggle) {
+            BookMarkSlider()
         }
         .onChange(of: tappedCoordinate) { newValue in
             guard let coord = newValue?.coordinate else { return }
@@ -83,336 +88,76 @@ struct LocSimView: View {
         .onChange(of: altitude) { newAlt in
             routeEngine.simulationAltitude = Double(newAlt) ?? 0.0
         }
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Picker("Mode", selection: $mode) {
-                    ForEach(LocSimMode.allCases) { m in
-                        Text(m.rawValue).tag(m)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 170)
-            }
+    }
 
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // Manual coordinate entry
-                Button(action: {
-                    UIApplication.shared.TextFieldAlert(
-                        title: "Nhập tọa độ",
-                        message: "Vị trí sẽ được mô phỏng trên toàn hệ thống.\n(Mẹo: Nhấn bất kỳ đâu trên bản đồ để bay tới)",
-                        textFieldPlaceHolder: "Vĩ độ (Latitude)",
-                        secondTextFieldPlaceHolder: "Kinh độ (Longitude)"
-                    ) { latText, longText in
-                        if let latDouble = Double(latText ?? ""), let longDouble = Double(longText ?? "") {
-                            let coordinate = CLLocationCoordinate2D(latitude: latDouble, longitude: longDouble)
-                            let altitudeValue = Double(altitude) ?? 0.0
-                            if mode == .single {
-                                startSimulation(at: coordinate, altitude: altitudeValue)
-                            } else {
-                                routeEngine.addWaypoint(coordinate)
-                            }
-                        } else {
-                            UIApplication.shared.alert(body: "Tọa độ không hợp lệ!")
-                        }
-                    }
-                }) {
-                    Image(systemName: "mappin")
-                        .font(.system(size: 16, weight: .semibold))
+    // MARK: - Navigation Toolbar Items
+    @ToolbarContentBuilder
+    private var navigationToolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            Picker("Mode", selection: $mode) {
+                ForEach(LocSimMode.allCases) { m in
+                    Text(m.rawValue).tag(m)
                 }
             }
+            .pickerStyle(.segmented)
+            .frame(width: 170)
+        }
 
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // Altitude setting
-                Button(action: {
-                    UIApplication.shared.TextFieldAlert(
-                        title: "Cài đặt độ cao",
-                        message: "Nhập độ cao theo đơn vị mét.",
-                        textFieldPlaceHolder: "Độ cao (m)"
-                    ) { altitudeText, _ in
-                        if let altText = altitudeText, !altText.isEmpty {
-                            self.altitude = altText
-                            self.routeEngine.simulationAltitude = Double(altText) ?? 0.0
-                            AlertKitAPI.present(
-                                title: "Đã đặt độ cao!",
-                                icon: .done,
-                                style: .iOS17AppleMusic,
-                                haptic: .success
-                            )
-                        }
-                    }
-                }) {
-                    Image(systemName: "mountain.2.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-            }
-
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // Stop GPS simulation (Master Stop Button)
-                Button(action: {
-                    stopAllSimulation()
-                    AlertKitAPI.present(
-                        title: "Đã dừng GPS!",
-                        icon: .done,
-                        style: .iOS17AppleMusic,
-                        haptic: .success
-                    )
-                }) {
-                    Image(systemName: "stop.circle.fill")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.red)
-                }
-            }
-
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // Bookmarks
-                Button(action: {
-                    self.bookmarkSheetTggle.toggle()
-                }) {
-                    Image(systemName: "bookmark")
-                        .font(.system(size: 16, weight: .semibold))
-                }
-                .sheet(isPresented: $bookmarkSheetTggle) {
-                    BookMarkSlider()
-                }
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button(action: showManualCoordAlert) {
+                Image(systemName: "mappin")
+                    .font(.system(size: 16, weight: .semibold))
             }
         }
-        .navigationBarTitleDisplayMode(.inline)
+
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button(action: showAltitudeAlert) {
+                Image(systemName: "mountain.2.fill")
+                    .font(.system(size: 16, weight: .semibold))
+            }
+        }
+
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button(action: {
+                stopAllSimulation()
+                AlertKitAPI.present(
+                    title: "Đã dừng GPS!",
+                    icon: .done,
+                    style: .iOS17AppleMusic,
+                    haptic: .success
+                )
+            }) {
+                Image(systemName: "stop.circle.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(.red)
+            }
+        }
+
+        ToolbarItem(placement: .navigationBarTrailing) {
+            Button(action: {
+                self.bookmarkSheetTggle.toggle()
+            }) {
+                Image(systemName: "bookmark")
+                    .font(.system(size: 16, weight: .semibold))
+            }
+        }
     }
 
     // MARK: - Route Floating Control Panel
     @ViewBuilder
     private func RouteControlPanel() -> some View {
         VStack(spacing: 8) {
-            // Row 1: Speed, Distance, Waypoints & Loop Toggle
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Tốc độ")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    HStack(spacing: 2) {
-                        Text(String(format: "%.1f", routeEngine.currentSpeedKmh))
-                            .font(.headline)
-                            .bold()
-                        Text("km/h")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                Divider().frame(height: 24)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Quãng đường")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    Text(formatDistance(routeEngine.totalDistanceMeters))
-                        .font(.subheadline)
-                        .bold()
-                }
-
-                Divider().frame(height: 24)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Điểm")
-                        .font(.caption2)
-                        .foregroundColor(.secondary)
-                    Text("\(routeEngine.waypoints.count)")
-                        .font(.subheadline)
-                        .bold()
-                }
-
-                Spacer()
-
-                // Loop toggle button
-                Button(action: {
-                    routeEngine.isLooping.toggle()
-                }) {
-                    Image(systemName: routeEngine.isLooping ? "repeat.1" : "repeat")
-                        .font(.system(size: 14, weight: .semibold))
-                        .padding(7)
-                        .background(routeEngine.isLooping ? Color.blue.opacity(0.2) : Color.gray.opacity(0.15))
-                        .foregroundColor(routeEngine.isLooping ? .blue : .primary)
-                        .clipShape(Circle())
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-
-            // Row 2: ETA Display (Thời gian ước tính tới nơi)
+            statsHeaderRow
             if routeEngine.waypoints.count >= 2 {
-                HStack(spacing: 8) {
-                    Image(systemName: "clock.fill")
-                        .font(.caption)
-                        .foregroundColor(.blue)
-
-                    Text("Ước tính:")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Text(routeEngine.etaFormattedDuration)
-                        .font(.caption.bold())
-                        .foregroundColor(.primary)
-
-                    Text("• Đến: \(routeEngine.etaArrivalTimeString)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Spacer()
-
-                    let remainDist = max(0.0, routeEngine.totalDistanceMeters - routeEngine.distanceCoveredMeters)
-                    Text("Còn \(formatDistance(remainDist))")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.blue.opacity(0.1))
-                        .foregroundColor(.blue)
-                        .cornerRadius(4)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .background(Color(.systemGray6).opacity(0.6))
-                .cornerRadius(6)
-                .padding(.horizontal, 12)
+                etaRow
             }
-
-            // Row 3: Live Base Speed Slider & Quick Adjust (Điều chỉnh ngay cả khi đang chạy)
-            HStack(spacing: 8) {
-                Text("Tốc độ:")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-
-                Button(action: {
-                    routeEngine.globalBaseSpeedKmh = max(10, routeEngine.globalBaseSpeedKmh - 5)
-                    routeEngine.updateETA()
-                }) {
-                    Text("-5")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color(.systemGray5))
-                        .cornerRadius(4)
-                }
-
-                Slider(value: $routeEngine.globalBaseSpeedKmh, in: 10...120, step: 1)
-                    .onChange(of: routeEngine.globalBaseSpeedKmh) { _ in
-                        routeEngine.updateETA()
-                    }
-
-                Button(action: {
-                    routeEngine.globalBaseSpeedKmh = min(120, routeEngine.globalBaseSpeedKmh + 5)
-                    routeEngine.updateETA()
-                }) {
-                    Text("+5")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color(.systemGray5))
-                        .cornerRadius(4)
-                }
-
-                Text("\(Int(routeEngine.globalBaseSpeedKmh)) km/h")
-                    .font(.caption.bold())
-                    .frame(width: 55, alignment: .trailing)
-            }
-            .padding(.horizontal, 12)
-
-            // Progress bar (if simulating)
+            liveSpeedSliderRow
             if routeEngine.isSimulating {
                 ProgressView(value: routeEngine.progressPercent)
                     .progressViewStyle(LinearProgressViewStyle(tint: .blue))
                     .padding(.horizontal, 12)
             }
-
-            // Row 4: Action Buttons (NO STOP BUTTON to avoid misclicks)
-            HStack(spacing: 10) {
-                // Clear button
-                Button(action: {
-                    routeEngine.clearRoute()
-                }) {
-                    Label("Xóa", systemImage: "trash")
-                        .font(.caption)
-                        .padding(.vertical, 7)
-                        .padding(.horizontal, 10)
-                        .background(Color(.systemGray5))
-                        .foregroundColor(.red)
-                        .cornerRadius(8)
-                }
-                .disabled(routeEngine.waypoints.isEmpty)
-
-                // Undo last point
-                Button(action: {
-                    routeEngine.removeLastWaypoint()
-                }) {
-                    Label("Lùi", systemImage: "arrow.uturn.backward")
-                        .font(.caption)
-                        .padding(.vertical, 7)
-                        .padding(.horizontal, 10)
-                        .background(Color(.systemGray5))
-                        .foregroundColor(.primary)
-                        .cornerRadius(8)
-                }
-                .disabled(routeEngine.isSimulating || routeEngine.waypoints.isEmpty)
-
-                // Segment Speed Settings Button
-                Button(action: {
-                    showSegmentSheet = true
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "speedometer")
-                        Text("Đoạn (\(routeEngine.segments.count))")
-                    }
-                    .font(.caption)
-                    .padding(.vertical, 7)
-                    .padding(.horizontal, 10)
-                    .background(Color.blue.opacity(0.12))
-                    .foregroundColor(.blue)
-                    .cornerRadius(8)
-                }
-                .disabled(routeEngine.waypoints.count < 2)
-
-                Spacer()
-
-                // Start / Pause / Resume button
-                if !routeEngine.isSimulating {
-                    Button(action: {
-                        routeEngine.startSimulation()
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "play.fill")
-                            Text("Chạy")
-                        }
-                        .font(.subheadline.bold())
-                        .foregroundColor(.white)
-                        .padding(.vertical, 7)
-                        .padding(.horizontal, 16)
-                        .background(routeEngine.waypoints.count >= 2 ? Color.green : Color.gray)
-                        .cornerRadius(8)
-                    }
-                    .disabled(routeEngine.waypoints.count < 2)
-                } else {
-                    // Pause/Resume
-                    Button(action: {
-                        if routeEngine.isPaused {
-                            routeEngine.resumeSimulation()
-                        } else {
-                            routeEngine.pauseSimulation()
-                        }
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: routeEngine.isPaused ? "play.fill" : "pause.fill")
-                            Text(routeEngine.isPaused ? "Tiếp tục" : "Tạm dừng")
-                        }
-                        .font(.subheadline.bold())
-                        .foregroundColor(.white)
-                        .padding(.vertical, 7)
-                        .padding(.horizontal, 14)
-                        .background(routeEngine.isPaused ? Color.green : Color.orange)
-                        .cornerRadius(8)
-                    }
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 10)
+            actionButtonsRow
         }
         .background(
             RoundedRectangle(cornerRadius: 16)
@@ -421,11 +166,279 @@ struct LocSimView: View {
         )
     }
 
+    private var statsHeaderRow: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Tốc độ")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                HStack(spacing: 2) {
+                    Text(String(format: "%.1f", routeEngine.currentSpeedKmh))
+                        .font(.headline)
+                        .fontWeight(.bold)
+                    Text("km/h")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Divider().frame(height: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Quãng đường")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text(formatDistance(routeEngine.totalDistanceMeters))
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+            }
+
+            Divider().frame(height: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Điểm")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                Text("\(routeEngine.waypoints.count)")
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+            }
+
+            Spacer()
+
+            Button(action: {
+                routeEngine.isLooping.toggle()
+            }) {
+                Image(systemName: routeEngine.isLooping ? "repeat.1" : "repeat")
+                    .font(.system(size: 14, weight: .semibold))
+                    .padding(7)
+                    .background(routeEngine.isLooping ? Color.blue.opacity(0.2) : Color.gray.opacity(0.15))
+                    .foregroundColor(routeEngine.isLooping ? .blue : .primary)
+                    .clipShape(Circle())
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+    }
+
+    private var etaRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "clock.fill")
+                .font(.caption)
+                .foregroundColor(.blue)
+
+            Text("Ước tính:")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Text(routeEngine.etaFormattedDuration)
+                .font(.caption)
+                .fontWeight(.bold)
+                .foregroundColor(.primary)
+
+            Text("• Đến: \(routeEngine.etaArrivalTimeString)")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Spacer()
+
+            let remainDist = max(0.0, routeEngine.totalDistanceMeters - routeEngine.distanceCoveredMeters)
+            Text("Còn \(formatDistance(remainDist))")
+                .font(.caption2)
+                .fontWeight(.bold)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.blue.opacity(0.1))
+                .foregroundColor(.blue)
+                .cornerRadius(4)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .background(Color(.systemGray6).opacity(0.6))
+        .cornerRadius(6)
+        .padding(.horizontal, 12)
+    }
+
+    private var liveSpeedSliderRow: some View {
+        HStack(spacing: 8) {
+            Text("Tốc độ:")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+
+            Button(action: {
+                routeEngine.globalBaseSpeedKmh = max(10, routeEngine.globalBaseSpeedKmh - 5)
+                routeEngine.updateETA()
+            }) {
+                Text("-5")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color(.systemGray5))
+                    .cornerRadius(4)
+            }
+
+            Slider(value: $routeEngine.globalBaseSpeedKmh, in: 10...120, step: 1)
+                .onChange(of: routeEngine.globalBaseSpeedKmh) { _ in
+                    routeEngine.updateETA()
+                }
+
+            Button(action: {
+                routeEngine.globalBaseSpeedKmh = min(120, routeEngine.globalBaseSpeedKmh + 5)
+                routeEngine.updateETA()
+            }) {
+                Text("+5")
+                    .font(.caption2)
+                    .fontWeight(.bold)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color(.systemGray5))
+                    .cornerRadius(4)
+            }
+
+            Text("\(Int(routeEngine.globalBaseSpeedKmh)) km/h")
+                .font(.caption)
+                .fontWeight(.bold)
+                .frame(width: 55, alignment: .trailing)
+        }
+        .padding(.horizontal, 12)
+    }
+
+    private var actionButtonsRow: some View {
+        HStack(spacing: 10) {
+            Button(action: {
+                routeEngine.clearRoute()
+            }) {
+                Label("Xóa", systemImage: "trash")
+                    .font(.caption)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 10)
+                    .background(Color(.systemGray5))
+                    .foregroundColor(.red)
+                    .cornerRadius(8)
+            }
+            .disabled(routeEngine.waypoints.isEmpty)
+
+            Button(action: {
+                routeEngine.removeLastWaypoint()
+            }) {
+                Label("Lùi", systemImage: "arrow.uturn.backward")
+                    .font(.caption)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 10)
+                    .background(Color(.systemGray5))
+                    .foregroundColor(.primary)
+                    .cornerRadius(8)
+            }
+            .disabled(routeEngine.isSimulating || routeEngine.waypoints.isEmpty)
+
+            Button(action: {
+                showSegmentSheet = true
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "speedometer")
+                    Text("Đoạn (\(routeEngine.segments.count))")
+                }
+                .font(.caption)
+                .padding(.vertical, 7)
+                .padding(.horizontal, 10)
+                .background(Color.blue.opacity(0.12))
+                .foregroundColor(.blue)
+                .cornerRadius(8)
+            }
+            .disabled(routeEngine.waypoints.count < 2)
+
+            Spacer()
+
+            if !routeEngine.isSimulating {
+                Button(action: {
+                    routeEngine.startSimulation()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "play.fill")
+                        Text("Chạy")
+                    }
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 16)
+                    .background(routeEngine.waypoints.count >= 2 ? Color.green : Color.gray)
+                    .cornerRadius(8)
+                }
+                .disabled(routeEngine.waypoints.count < 2)
+            } else {
+                Button(action: {
+                    if routeEngine.isPaused {
+                        routeEngine.resumeSimulation()
+                    } else {
+                        routeEngine.pauseSimulation()
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: routeEngine.isPaused ? "play.fill" : "pause.fill")
+                        Text(routeEngine.isPaused ? "Tiếp tục" : "Tạm dừng")
+                    }
+                    .font(.subheadline)
+                    .fontWeight(.bold)
+                    .foregroundColor(.white)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 14)
+                    .background(routeEngine.isPaused ? Color.green : Color.orange)
+                    .cornerRadius(8)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 10)
+    }
+
     private func formatDistance(_ meters: Double) -> String {
         if meters >= 1000 {
             return String(format: "%.2f km", meters / 1000.0)
         } else {
             return "\(Int(meters)) m"
+        }
+    }
+
+    // MARK: - Alert Handlers
+    private func showManualCoordAlert() {
+        UIApplication.shared.TextFieldAlert(
+            title: "Nhập tọa độ",
+            message: "Vị trí sẽ được mô phỏng trên toàn hệ thống.\n(Mẹo: Nhấn bất kỳ đâu trên bản đồ để bay tới)",
+            textFieldPlaceHolder: "Vĩ độ (Latitude)",
+            secondTextFieldPlaceHolder: "Kinh độ (Longitude)"
+        ) { latText, longText in
+            if let latDouble = Double(latText ?? ""), let longDouble = Double(longText ?? "") {
+                let coordinate = CLLocationCoordinate2D(latitude: latDouble, longitude: longDouble)
+                let altitudeValue = Double(altitude) ?? 0.0
+                if mode == .single {
+                    startSimulation(at: coordinate, altitude: altitudeValue)
+                } else {
+                    routeEngine.addWaypoint(coordinate)
+                }
+            } else {
+                UIApplication.shared.alert(body: "Tọa độ không hợp lệ!")
+            }
+        }
+    }
+
+    private func showAltitudeAlert() {
+        UIApplication.shared.TextFieldAlert(
+            title: "Cài đặt độ cao",
+            message: "Nhập độ cao theo đơn vị mét.",
+            textFieldPlaceHolder: "Độ cao (m)"
+        ) { altitudeText, _ in
+            if let altText = altitudeText, !altText.isEmpty {
+                self.altitude = altText
+                self.routeEngine.simulationAltitude = Double(altText) ?? 0.0
+                AlertKitAPI.present(
+                    title: "Đã đặt độ cao!",
+                    icon: .done,
+                    style: .iOS17AppleMusic,
+                    haptic: .success
+                )
+            }
         }
     }
 
@@ -479,7 +492,6 @@ struct SegmentSpeedSheet: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Top control bar
                 HStack {
                     Button(selectedSegmentIndices.count == routeEngine.segments.count ? "Bỏ chọn" : "Chọn tất cả") {
                         if selectedSegmentIndices.count == routeEngine.segments.count {
@@ -500,7 +512,6 @@ struct SegmentSpeedSheet: View {
                 .padding(.vertical, 8)
                 .background(Color(UIColor.systemGroupedBackground))
 
-                // Segments list
                 List {
                     ForEach(routeEngine.segments) { seg in
                         HStack(spacing: 12) {
@@ -524,7 +535,8 @@ struct SegmentSpeedSheet: View {
                                     let isCustom = seg.customSpeedKmh != nil
 
                                     Text("\(Int(speed)) ± \(Int(variance)) km/h")
-                                        .font(.caption.bold())
+                                        .font(.caption)
+                                        .fontWeight(.bold)
                                         .padding(.horizontal, 6)
                                         .padding(.vertical, 2)
                                         .background(isCustom ? Color.blue.opacity(0.15) : Color.gray.opacity(0.15))
@@ -533,13 +545,15 @@ struct SegmentSpeedSheet: View {
 
                                     if isCustom {
                                         Text("Riêng")
-                                            .font(.caption2.bold())
+                                            .font(.caption2)
+                                            .fontWeight(.bold)
                                             .foregroundColor(.blue)
                                     }
 
                                     if seg.isSharpTurn {
                                         Text("Khúc cua \(Int(seg.turnAngleDegrees))° (Giảm 40%)")
-                                            .font(.caption2.bold())
+                                            .font(.caption2)
+                                            .fontWeight(.bold)
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2)
                                             .background(Color.orange.opacity(0.15))
@@ -561,15 +575,16 @@ struct SegmentSpeedSheet: View {
                 }
                 .listStyle(.plain)
 
-                // Batch adjustment card
                 VStack(spacing: 10) {
                     Text(selectedSegmentIndices.isEmpty ? "Chọn đoạn ở trên để điều chỉnh" : "Đã chọn \(selectedSegmentIndices.count) đoạn")
-                        .font(.subheadline.bold())
+                        .font(.subheadline)
+                        .fontWeight(.bold)
                         .foregroundColor(selectedSegmentIndices.isEmpty ? .secondary : .primary)
 
                     HStack {
                         Text("Tốc độ:")
-                            .font(.caption.bold())
+                            .font(.caption)
+                            .fontWeight(.bold)
                         Button("- 5") { targetSpeed = max(10, targetSpeed - 5) }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -585,13 +600,15 @@ struct SegmentSpeedSheet: View {
                             .cornerRadius(4)
 
                         Text("\(Int(targetSpeed)) km/h")
-                            .font(.caption.bold())
+                            .font(.caption)
+                            .fontWeight(.bold)
                             .frame(width: 55, alignment: .trailing)
                     }
 
                     HStack {
                         Text("Độ lệch:")
-                            .font(.caption.bold())
+                            .font(.caption)
+                            .fontWeight(.bold)
                         Button("- 1") { targetVariance = max(0, targetVariance - 1) }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
@@ -607,7 +624,8 @@ struct SegmentSpeedSheet: View {
                             .cornerRadius(4)
 
                         Text("±\(Int(targetVariance)) km/h")
-                            .font(.caption.bold())
+                            .font(.caption)
+                            .fontWeight(.bold)
                             .frame(width: 55, alignment: .trailing)
                     }
 
@@ -628,7 +646,8 @@ struct SegmentSpeedSheet: View {
                             routeEngine.setSpeedForSegments(indices: selectedSegmentIndices, speedKmh: targetSpeed, varianceKmh: targetVariance)
                             selectedSegmentIndices.removeAll()
                         }
-                        .font(.subheadline.bold())
+                        .font(.subheadline)
+                        .fontWeight(.bold)
                         .foregroundColor(.white)
                         .padding(.vertical, 8)
                         .frame(maxWidth: .infinity)
@@ -644,10 +663,12 @@ struct SegmentSpeedSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Xong") {
+                    Button(action: {
                         presentationMode.wrappedValue.dismiss()
+                    }) {
+                        Text("Xong")
+                            .fontWeight(.bold)
                     }
-                    .bold()
                 }
             }
         }
