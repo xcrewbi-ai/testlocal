@@ -313,6 +313,14 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
         isSimulating = true
         isPaused = false
 
+        let firstCoord = waypoints[0].coordinate
+        currentCoordinate = firstCoord
+        sendSimulatedLocation(
+            coordinate: firstCoord,
+            course: calculateBearing(from: firstCoord, to: waypoints[1].coordinate),
+            speed: currentSpeedKmh / 3.6
+        )
+
         startBackgroundServices()
         startTimer()
         updateETA()
@@ -332,7 +340,7 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
         startTimer()
     }
 
-    func stopSimulation() {
+    func stopSimulation(stopGPS: Bool = false) {
         stopTimer()
         stopBackgroundServices()
         isSimulating = false
@@ -342,7 +350,28 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
         currentSegmentIndex = 0
         distanceAlongCurrentSegment = 0.0
         updateETA()
-        LocSimManager.stopLocSim()
+        if stopGPS {
+            currentCoordinate = nil
+            LocSimManager.stopLocSim()
+        }
+    }
+
+    func finishSimulationAtDestination() {
+        stopTimer()
+        stopBackgroundServices()
+        isSimulating = false
+        isPaused = false
+        currentSpeedKmh = 0.0
+        progressPercent = 1.0
+        distanceCoveredMeters = totalDistanceMeters
+        currentSegmentIndex = max(0, waypoints.count - 1)
+        distanceAlongCurrentSegment = 0.0
+        updateETA()
+
+        if let destination = waypoints.last?.coordinate {
+            currentCoordinate = destination
+            sendSimulatedLocation(coordinate: destination, course: 0.0, speed: 0.0)
+        }
     }
 
     // MARK: - Timer & Movement Logic
@@ -441,8 +470,11 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
                 distanceAlongCurrentSegment = 0.0
                 distanceCoveredMeters = 0.0
             } else {
+                if let lastCoord = waypoints.last?.coordinate {
+                    sendSimulatedLocation(coordinate: lastCoord, course: 0.0, speed: 0.0)
+                }
                 DispatchQueue.main.async { [weak self] in
-                    self?.stopSimulation()
+                    self?.finishSimulationAtDestination()
                 }
                 return
             }
@@ -476,7 +508,7 @@ class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelega
                         speed: 0.0
                     )
                     DispatchQueue.main.async { [weak self] in
-                        self?.stopSimulation()
+                        self?.finishSimulationAtDestination()
                     }
                     return
                 }

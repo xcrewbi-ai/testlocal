@@ -455,7 +455,7 @@ struct LocSimView: View {
     }
 
     private func stopAllSimulation() {
-        routeEngine.stopSimulation()
+        routeEngine.stopSimulation(stopGPS: true)
         if appSettings.locSimMultipleAttempts {
             var countdown = appSettings.locSimAttemptNB
             DispatchQueue.global().async {
