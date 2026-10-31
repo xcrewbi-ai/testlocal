@@ -1,13 +1,21 @@
 //
 //  RouteSimulationEngine.swift
-//  Geranium
+//  Geranium (CompassPro)
 //
-//  Created for Route Simulation with realistic speed and lateral drift.
+//  Upgraded Route Simulation Engine:
+//  - Background execution support (CLLocationManager background updates + silent AVAudioSession loop + UIBackgroundTask)
+//  - Global adjustable base speed (km/h) & variance (+- km/h) on the fly
+//  - Segment-by-segment custom speed configuration (multi-select / individual)
+//  - Corner deceleration down to 40% on sharp turns (0° to 120° / heading change >= 35°)
+//  - Estimated Time of Arrival (ETA) duration and arrival clock time
+//  - Lateral drift +-2m orthogonal to route
 //
 
 import Foundation
 import CoreLocation
 import Combine
+import UIKit
+import AVFoundation
 
 struct RouteWaypoint: Identifiable, Equatable {
     let id: UUID
@@ -25,23 +33,44 @@ struct RouteWaypoint: Identifiable, Equatable {
     }
 }
 
-class RouteSimulationEngine: ObservableObject {
+struct RouteSegment: Identifiable, Equatable {
+    let id: Int // 0, 1, 2...
+    var startIndex: Int // 1, 2, ...
+    var endIndex: Int // 2, 3, ...
+    var distanceMeters: Double
+    var customSpeedKmh: Double? // nil = use globalBaseSpeedKmh
+    var customVarianceKmh: Double? // nil = use globalSpeedVarianceKmh
+    var turnAngleDegrees: Double // turn angle at start of segment
+    var isSharpTurn: Bool // turn angle >= 35° (corner angle 0° to 120°)
+}
+
+class RouteSimulationEngine: NSObject, ObservableObject, CLLocationManagerDelegate {
     static let shared = RouteSimulationEngine()
 
     // MARK: - Published Properties
     @Published var waypoints: [RouteWaypoint] = []
+    @Published var segments: [RouteSegment] = []
     @Published var isSimulating: Bool = false
     @Published var isPaused: Bool = false
     @Published var currentSpeedKmh: Double = 30.0
+    @Published var globalBaseSpeedKmh: Double = 30.0
+    @Published var globalSpeedVarianceKmh: Double = 5.0
     @Published var totalDistanceMeters: Double = 0.0
     @Published var distanceCoveredMeters: Double = 0.0
     @Published var progressPercent: Double = 0.0
     @Published var currentCoordinate: CLLocationCoordinate2D? = nil
     @Published var isLooping: Bool = false
 
+    // ETA properties
+    @Published var etaRemainingSeconds: Double = 0.0
+    @Published var etaFormattedDuration: String = "--"
+    @Published var etaArrivalTimeString: String = "--:--"
+
+    // Current segment tracking
+    @Published var currentSegmentIndex: Int = 0
+
     // MARK: - Internal Simulation State
     private var timer: DispatchSourceTimer?
-    private var currentSegmentIndex: Int = 0
     private var distanceAlongCurrentSegment: Double = 0.0
     private var currentLateralOffset: Double = 0.0
     private let tickIntervalSeconds: Double = 1.0
@@ -50,44 +79,221 @@ class RouteSimulationEngine: ObservableObject {
     // Altitude to apply during route simulation
     var simulationAltitude: Double = 0.0
 
-    private init() {}
+    // Background Execution Helpers
+    private let locationManager = CLLocationManager()
+    private var silentAudioPlayer: AVAudioPlayer?
+    private var bgTaskId: UIBackgroundTaskIdentifier = .invalid
 
-    // MARK: - Waypoint Management
+    private override init() {
+        super.init()
+        setupLocationManager()
+    }
+
+    // MARK: - Background Service Management
+
+    private func setupLocationManager() {
+        locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+        locationManager.distanceFilter = kCLDistanceFilterNone
+        locationManager.allowsBackgroundLocationUpdates = true
+        locationManager.pausesLocationUpdatesAutomatically = false
+        locationManager.requestAlwaysAuthorization()
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        // Keeps iOS background location pipeline active while app is minimized or locked
+    }
+
+    private func startBackgroundServices() {
+        // 1. Location updates
+        locationManager.startUpdatingLocation()
+
+        // 2. Silent audio loop
+        setupSilentAudio()
+
+        // 3. UIBackgroundTask
+        startBackgroundTask()
+    }
+
+    private func stopBackgroundServices() {
+        locationManager.stopUpdatingLocation()
+        stopSilentAudio()
+        endBackgroundTask()
+    }
+
+    private func startBackgroundTask() {
+        endBackgroundTask()
+        bgTaskId = UIApplication.shared.beginBackgroundTask(withName: "CompassProBackgroundRoute") { [weak self] in
+            self?.startBackgroundTask()
+        }
+    }
+
+    private func endBackgroundTask() {
+        if bgTaskId != .invalid {
+            UIApplication.shared.endBackgroundTask(bgTaskId)
+            bgTaskId = .invalid
+        }
+    }
+
+    private func setupSilentAudio() {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+            let audioData = createSilentWAVData()
+            silentAudioPlayer = try AVAudioPlayer(data: audioData)
+            silentAudioPlayer?.numberOfLoops = -1
+            silentAudioPlayer?.volume = 0.01
+            silentAudioPlayer?.prepareToPlay()
+            silentAudioPlayer?.play()
+        } catch {
+            print("Background audio error: \(error)")
+        }
+    }
+
+    private func stopSilentAudio() {
+        silentAudioPlayer?.stop()
+        silentAudioPlayer = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+    }
+
+    private func createSilentWAVData() -> Data {
+        let sampleRate: Int32 = 8000
+        let numChannels: Int16 = 1
+        let bitsPerSample: Int16 = 16
+        let durationSeconds = 1
+        let numSamples = Int(sampleRate) * durationSeconds
+        let dataSize = Int32(numSamples * Int(numChannels) * Int(bitsPerSample / 8))
+        let fileSize = 36 + dataSize
+
+        var data = Data()
+        data.append(contentsOf: [0x52, 0x49, 0x46, 0x46]) // "RIFF"
+        var fileSizeLE = fileSize.littleEndian
+        data.append(Data(bytes: &fileSizeLE, count: 4))
+        data.append(contentsOf: [0x57, 0x41, 0x56, 0x45, 0x66, 0x6D, 0x74, 0x20]) // "WAVEfmt "
+        var subchunk1Size: Int32 = 16
+        data.append(Data(bytes: &subchunk1Size, count: 4))
+        var audioFormat: Int16 = 1 // PCM
+        data.append(Data(bytes: &audioFormat, count: 2))
+        var channels = numChannels.littleEndian
+        data.append(Data(bytes: &channels, count: 2))
+        var sRate = sampleRate.littleEndian
+        data.append(Data(bytes: &sRate, count: 4))
+        var byteRate = (sampleRate * Int32(numChannels) * Int32(bitsPerSample / 8)).littleEndian
+        data.append(Data(bytes: &byteRate, count: 4))
+        var blockAlign = (numChannels * (bitsPerSample / 8)).littleEndian
+        data.append(Data(bytes: &blockAlign, count: 2))
+        var bps = bitsPerSample.littleEndian
+        data.append(Data(bytes: &bps, count: 2))
+        data.append(contentsOf: [0x64, 0x61, 0x74, 0x61]) // "data"
+        var dSize = dataSize.littleEndian
+        data.append(Data(bytes: &dSize, count: 4))
+        data.append(Data(count: Int(dataSize)))
+        return data
+    }
+
+    // MARK: - Waypoint & Segment Management
 
     func addWaypoint(_ coordinate: CLLocationCoordinate2D) {
         guard !isSimulating else { return }
         let newWaypoint = RouteWaypoint(coordinate: coordinate, order: waypoints.count + 1)
         waypoints.append(newWaypoint)
-        recalculateTotalDistance()
+        recalculateSegments()
+        updateETA()
     }
 
     func removeLastWaypoint() {
         guard !isSimulating, !waypoints.isEmpty else { return }
         waypoints.removeLast()
-        recalculateTotalDistance()
+        recalculateSegments()
+        updateETA()
     }
 
     func clearRoute() {
         stopSimulation()
         waypoints.removeAll()
+        segments.removeAll()
         totalDistanceMeters = 0.0
         distanceCoveredMeters = 0.0
         progressPercent = 0.0
         currentCoordinate = nil
+        currentSegmentIndex = 0
+        updateETA()
     }
 
-    private func recalculateTotalDistance() {
+    func recalculateSegments() {
         guard waypoints.count >= 2 else {
+            segments = []
             totalDistanceMeters = 0.0
             return
         }
-        var total: Double = 0.0
+
+        var newSegments: [RouteSegment] = []
+        var totalDist: Double = 0.0
+
         for i in 0..<(waypoints.count - 1) {
-            let locA = CLLocation(latitude: waypoints[i].coordinate.latitude, longitude: waypoints[i].coordinate.longitude)
-            let locB = CLLocation(latitude: waypoints[i + 1].coordinate.latitude, longitude: waypoints[i + 1].coordinate.longitude)
-            total += locA.distance(from: locB)
+            let p1 = waypoints[i].coordinate
+            let p2 = waypoints[i + 1].coordinate
+            let loc1 = CLLocation(latitude: p1.latitude, longitude: p1.longitude)
+            let loc2 = CLLocation(latitude: p2.latitude, longitude: p2.longitude)
+            let segDist = loc1.distance(from: loc2)
+            totalDist += segDist
+
+            // Calculate turn angle at start of segment (waypoint i)
+            var turnAngle: Double = 0.0
+            var isSharp: Bool = false
+            if i > 0 {
+                let p0 = waypoints[i - 1].coordinate
+                let bPrev = calculateBearing(from: p0, to: p1)
+                let bCur = calculateBearing(from: p1, to: p2)
+                var diff = abs(bCur - bPrev).truncatingRemainder(dividingBy: 360.0)
+                if diff > 180.0 { diff = 360.0 - diff }
+                turnAngle = diff
+                // Sharp turn: heading change between 35° and 180° (interior angle 0° to 145°)
+                isSharp = turnAngle >= 35.0
+            }
+
+            // Preserve previous customization if present
+            var existingSpeed: Double? = nil
+            var existingVariance: Double? = nil
+            if i < segments.count {
+                existingSpeed = segments[i].customSpeedKmh
+                existingVariance = segments[i].customVarianceKmh
+            }
+
+            newSegments.append(RouteSegment(
+                id: i,
+                startIndex: i + 1,
+                endIndex: i + 2,
+                distanceMeters: segDist,
+                customSpeedKmh: existingSpeed,
+                customVarianceKmh: existingVariance,
+                turnAngleDegrees: turnAngle,
+                isSharpTurn: isSharp
+            ))
         }
-        totalDistanceMeters = total
+
+        self.segments = newSegments
+        self.totalDistanceMeters = totalDist
+    }
+
+    // MARK: - Segment Speed Customization
+
+    func setSpeedForSegments(indices: Set<Int>, speedKmh: Double?, varianceKmh: Double?) {
+        for idx in indices {
+            if idx >= 0 && idx < segments.count {
+                segments[idx].customSpeedKmh = speedKmh
+                segments[idx].customVarianceKmh = varianceKmh
+            }
+        }
+        updateETA()
+    }
+
+    func resetAllSegmentSpeeds() {
+        for i in 0..<segments.count {
+            segments[i].customSpeedKmh = nil
+            segments[i].customVarianceKmh = nil
+        }
+        updateETA()
     }
 
     // MARK: - Simulation Control
@@ -102,33 +308,40 @@ class RouteSimulationEngine: ObservableObject {
         currentSegmentIndex = 0
         distanceAlongCurrentSegment = 0.0
         distanceCoveredMeters = 0.0
-        currentSpeedKmh = 30.0
+        currentSpeedKmh = segments.first?.customSpeedKmh ?? globalBaseSpeedKmh
         currentLateralOffset = 0.0
         isSimulating = true
         isPaused = false
 
-        // Start timer
+        startBackgroundServices()
         startTimer()
+        updateETA()
     }
 
     func pauseSimulation() {
         guard isSimulating, !isPaused else { return }
         isPaused = true
         stopTimer()
+        stopBackgroundServices()
     }
 
     func resumeSimulation() {
         guard isSimulating, isPaused else { return }
         isPaused = false
+        startBackgroundServices()
         startTimer()
     }
 
     func stopSimulation() {
         stopTimer()
+        stopBackgroundServices()
         isSimulating = false
         isPaused = false
         distanceCoveredMeters = 0.0
         progressPercent = 0.0
+        currentSegmentIndex = 0
+        distanceAlongCurrentSegment = 0.0
+        updateETA()
         LocSimManager.stopLocSim()
     }
 
@@ -151,19 +364,72 @@ class RouteSimulationEngine: ObservableObject {
         timer = nil
     }
 
+    // MARK: - Corner Braking & Speed Calculation
+
+    private func computeTargetSpeedForCurrentPosition() -> (targetSpeed: Double, variance: Double) {
+        guard currentSegmentIndex < segments.count else {
+            return (globalBaseSpeedKmh, globalSpeedVarianceKmh)
+        }
+
+        let curSeg = segments[currentSegmentIndex]
+        let base = curSeg.customSpeedKmh ?? globalBaseSpeedKmh
+        let variance = curSeg.customVarianceKmh ?? globalSpeedVarianceKmh
+
+        var cornerFactor = 1.0
+
+        // 1. Approach to corner at end of this segment:
+        if currentSegmentIndex + 1 < segments.count {
+            let nextSeg = segments[currentSegmentIndex + 1]
+            if nextSeg.isSharpTurn {
+                let distToEnd = max(0.0, curSeg.distanceMeters - distanceAlongCurrentSegment)
+                let brakingZone: Double = 30.0 // meters before corner
+                if distToEnd <= brakingZone {
+                    // Decelerate down to 40% (0.4) at the corner waypoint
+                    let progressInBraking = distToEnd / brakingZone
+                    let factor = 0.4 + (0.6 * progressInBraking)
+                    cornerFactor = min(cornerFactor, factor)
+                }
+            }
+        }
+
+        // 2. Exit from corner at start of this segment:
+        if curSeg.isSharpTurn {
+            let distFromStart = distanceAlongCurrentSegment
+            let accelerationZone: Double = 20.0 // meters after corner
+            if distFromStart <= accelerationZone {
+                // Accelerate from 40% (0.4) back to 100% (1.0)
+                let progressInAccel = distFromStart / accelerationZone
+                let factor = 0.4 + (0.6 * progressInAccel)
+                cornerFactor = min(cornerFactor, factor)
+            }
+        }
+
+        let targetSpeed = max(5.0, base * cornerFactor)
+        return (targetSpeed, variance * cornerFactor)
+    }
+
     private func simulationTick() {
         guard isSimulating, !isPaused, waypoints.count >= 2 else { return }
 
-        // 1. Calculate random speed in range 30 +- 5 km/h (25 km/h to 35 km/h) with smooth acceleration
-        let deltaV = Double.random(in: -1.2...1.2)
-        var newSpeed = currentSpeedKmh + deltaV
-        newSpeed = max(25.0, min(35.0, newSpeed))
+        // Compute current target speed (accounting for segment custom speed & corner deceleration)
+        let (targetSpeed, variance) = computeTargetSpeedForCurrentPosition()
 
-        // Convert speed to m/s
+        // Fluctuate within [targetSpeed - variance ... targetSpeed + variance]
+        let minSpeed = max(5.0, targetSpeed - variance)
+        let maxSpeed = targetSpeed + variance
+        let randomTarget = Double.random(in: minSpeed...maxSpeed)
+
+        // Smooth transition towards randomTarget (max 2.5 km/h per second)
+        let delta = randomTarget - currentSpeedKmh
+        let maxStep = 2.5
+        let clampedDelta = max(-maxStep, min(maxStep, delta))
+        let newSpeed = max(3.0, currentSpeedKmh + clampedDelta)
+
+        // Convert to m/s
         let speedMps = newSpeed / 3.6
         let stepDistance = speedMps * tickIntervalSeconds
 
-        // 2. Advance along route
+        // Advance along route
         advanceDistance(stepDistance, speedKmh: newSpeed, speedMps: speedMps)
     }
 
@@ -204,7 +470,6 @@ class RouteSimulationEngine: ObservableObject {
                     distanceAlongCurrentSegment = leftover
                     distanceCoveredMeters = leftover
                 } else {
-                    // Send final waypoint location then stop
                     sendSimulatedLocation(
                         coordinate: endCoord,
                         course: calculateBearing(from: startCoord, to: endCoord),
@@ -218,7 +483,7 @@ class RouteSimulationEngine: ObservableObject {
             }
         }
 
-        // 3. Compute intermediate position on current segment with +-2m lateral drift
+        // Compute intermediate position on current segment with +-2m lateral drift
         let currentStart = waypoints[currentSegmentIndex].coordinate
         let currentEnd = waypoints[currentSegmentIndex + 1].coordinate
         let currentSegmentLen = CLLocation(latitude: currentStart.latitude, longitude: currentStart.longitude)
@@ -240,10 +505,10 @@ class RouteSimulationEngine: ObservableObject {
 
         let bearing = calculateBearing(from: currentStart, to: currentEnd)
 
-        // 4. Send to LocSimManager
+        // Send to LocSimManager
         sendSimulatedLocation(coordinate: computedCoord, course: bearing, speed: speedMps)
 
-        // 5. Update main thread state
+        // Update main thread state & ETA
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             self.currentSpeedKmh = speedKmh
@@ -251,6 +516,7 @@ class RouteSimulationEngine: ObservableObject {
             if self.totalDistanceMeters > 0 {
                 self.progressPercent = min(1.0, self.distanceCoveredMeters / self.totalDistanceMeters)
             }
+            self.updateETA()
         }
     }
 
@@ -267,9 +533,68 @@ class RouteSimulationEngine: ObservableObject {
         LocSimManager.startLocSim(location: location)
     }
 
+    // MARK: - ETA Calculation
+
+    func updateETA() {
+        guard totalDistanceMeters > 0 else {
+            etaFormattedDuration = "--"
+            etaArrivalTimeString = "--:--"
+            etaRemainingSeconds = 0.0
+            return
+        }
+
+        let remainingDistance = max(0.0, totalDistanceMeters - distanceCoveredMeters)
+        if remainingDistance <= 0 {
+            etaFormattedDuration = "0s"
+            etaArrivalTimeString = "Đã đến"
+            etaRemainingSeconds = 0.0
+            return
+        }
+
+        var remainingSeconds: Double = 0.0
+        if currentSegmentIndex < segments.count {
+            // Remainder of current segment
+            let curSeg = segments[currentSegmentIndex]
+            let curSpeed = (curSeg.customSpeedKmh ?? globalBaseSpeedKmh) / 3.6
+            let curRemainDist = max(0.0, curSeg.distanceMeters - distanceAlongCurrentSegment)
+            remainingSeconds += (curRemainDist / max(1.0, curSpeed))
+
+            // Subsequent segments
+            if currentSegmentIndex + 1 < segments.count {
+                for i in (currentSegmentIndex + 1)..<segments.count {
+                    let seg = segments[i]
+                    let spd = (seg.customSpeedKmh ?? globalBaseSpeedKmh) / 3.6
+                    remainingSeconds += (seg.distanceMeters / max(1.0, spd))
+                }
+            }
+        } else {
+            let spd = max(5.0, currentSpeedKmh) / 3.6
+            remainingSeconds = remainingDistance / spd
+        }
+
+        self.etaRemainingSeconds = remainingSeconds
+
+        let totalSecs = Int(remainingSeconds)
+        let hours = totalSecs / 3600
+        let minutes = (totalSecs % 3600) / 60
+        let seconds = totalSecs % 60
+
+        if hours > 0 {
+            etaFormattedDuration = "\(hours)h \(minutes)p"
+        } else if minutes > 0 {
+            etaFormattedDuration = "\(minutes)p \(seconds)s"
+        } else {
+            etaFormattedDuration = "\(seconds)s"
+        }
+
+        let arrivalDate = Date().addingTimeInterval(remainingSeconds)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        etaArrivalTimeString = formatter.string(from: arrivalDate)
+    }
+
     // MARK: - Mathematical Helpers
 
-    /// Computes interpolated coordinate along segment with orthogonal lateral offset
     private func computeInterpolatedCoordinate(
         from: CLLocationCoordinate2D,
         to: CLLocationCoordinate2D,
@@ -281,7 +606,6 @@ class RouteSimulationEngine: ObservableObject {
         let lat2 = to.latitude * .pi / 180.0
         let lon2 = to.longitude * .pi / 180.0
 
-        // Flat projection relative to 'from' in meters
         let avgLat = (lat1 + lat2) / 2.0
         let dx = (lon2 - lon1) * cos(avgLat) * earthRadiusMeters
         let dy = (lat2 - lat1) * earthRadiusMeters
@@ -289,26 +613,20 @@ class RouteSimulationEngine: ObservableObject {
 
         if len == 0 { return from }
 
-        // Unit tangent vector T = (tx, ty)
         let tx = dx / len
         let ty = dy / len
-
-        // Unit normal vector N = (-ty, tx) (perpendicular to path)
         let nx = -ty
         let ny = tx
 
-        // Point along path in meters
         let px = fraction * dx + lateralOffsetMeters * nx
         let py = fraction * dy + lateralOffsetMeters * ny
 
-        // Convert back to lat/lon
         let resultLat = (lat1 + (py / earthRadiusMeters)) * 180.0 / .pi
         let resultLon = (lon1 + (px / (earthRadiusMeters * cos(avgLat)))) * 180.0 / .pi
 
         return CLLocationCoordinate2D(latitude: resultLat, longitude: resultLon)
     }
 
-    /// Computes bearing (heading in degrees 0...360) between two coordinates
     private func calculateBearing(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Double {
         let lat1 = from.latitude * .pi / 180.0
         let lon1 = from.longitude * .pi / 180.0

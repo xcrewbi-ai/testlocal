@@ -11,6 +11,8 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
+		<string>audio</string>
+		<string>processing</string>
 	</array>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Ứng dụng sử dụng định vị để mô phỏng và hiển thị vị trí la bàn.</string>

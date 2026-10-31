@@ -56,6 +56,9 @@ echo "Patching Info.plist for $NEW_DISPLAY_NAME ($NEW_BUNDLE_ID)..."
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $NEW_DISPLAY_NAME" "$TARGET_APP/Info.plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string $NEW_DISPLAY_NAME" "$TARGET_APP/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleName $NEW_NAME" "$TARGET_APP/Info.plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleName string $NEW_NAME" "$TARGET_APP/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $NEW_NAME" "$TARGET_APP/Info.plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string $NEW_NAME" "$TARGET_APP/Info.plist"
+/usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$TARGET_APP/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string location" "$TARGET_APP/Info.plist" 2>/dev/null || true
+/usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string audio" "$TARGET_APP/Info.plist" 2>/dev/null || true
 
 mv "$TARGET_APP/$APPLICATION_NAME" "$TARGET_APP/$NEW_NAME"
 
