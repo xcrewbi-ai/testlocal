@@ -84,15 +84,20 @@ final class RouteSimulationEngine: ObservableObject {
     // MARK: - Waypoint & Segment Management
 
     func addWaypoint(_ coordinate: CLLocationCoordinate2D) {
-        guard !isSimulating else { return }
         let newWaypoint = RouteWaypoint(coordinate: coordinate, order: waypoints.count + 1)
         waypoints.append(newWaypoint)
         recalculateSegments()
+        if !isSimulating && currentCoordinate == nil {
+            currentCoordinate = coordinate
+        }
         updateETA()
     }
 
     func removeLastWaypoint() {
-        guard !isSimulating, !waypoints.isEmpty else { return }
+        guard !waypoints.isEmpty else { return }
+        if isSimulating {
+            guard waypoints.count > currentSegmentIndex + 2 else { return }
+        }
         waypoints.removeLast()
         recalculateSegments()
         updateETA()
@@ -107,6 +112,30 @@ final class RouteSimulationEngine: ObservableObject {
         progressPercent = 0.0
         currentCoordinate = nil
         currentSegmentIndex = 0
+        updateETA()
+    }
+
+    /// Completes the route: pins simulated GPS at current/final position and clears all route lines
+    func completeRouteAndClear() {
+        stopTimer()
+        isSimulating = false
+        isPaused = false
+        currentSpeedKmh = 0.0
+
+        let finalCoord = currentCoordinate ?? waypoints.last?.coordinate
+        if let final = finalCoord {
+            currentCoordinate = final
+            sendSimulatedLocation(coordinate: final, course: 0.0, speed: 0.0)
+        }
+
+        waypoints.removeAll()
+        segments.removeAll()
+        totalDistanceMeters = 0.0
+        distanceCoveredMeters = 0.0
+        progressPercent = 0.0
+        currentSegmentIndex = 0
+        distanceAlongCurrentSegment = 0.0
+
         updateETA()
     }
 
@@ -184,15 +213,23 @@ final class RouteSimulationEngine: ObservableObject {
             return
         }
 
-        currentSegmentIndex = 0
-        distanceAlongCurrentSegment = 0.0
-        distanceCoveredMeters = 0.0
-        currentSpeedKmh = segments.first?.customSpeedKmh ?? globalBaseSpeedKmh
+        // If resuming after previous route ended and new points were appended:
+        if currentSegmentIndex >= segments.count || (totalDistanceMeters > 0 && distanceCoveredMeters >= totalDistanceMeters) {
+            currentSegmentIndex = 0
+            distanceAlongCurrentSegment = 0.0
+            distanceCoveredMeters = 0.0
+        } else if distanceAlongCurrentSegment >= segments[currentSegmentIndex].distanceMeters {
+            currentSegmentIndex += 1
+            distanceAlongCurrentSegment = 0.0
+        }
+
+        let curSeg = (currentSegmentIndex < segments.count) ? segments[currentSegmentIndex] : nil
+        currentSpeedKmh = curSeg?.customSpeedKmh ?? globalBaseSpeedKmh
         currentLateralOffset = 0.0
         isSimulating = true
         isPaused = false
 
-        if let firstCoord = waypoints.first?.coordinate {
+        if currentCoordinate == nil, let firstCoord = waypoints.first?.coordinate {
             currentCoordinate = firstCoord
             sendSimulatedLocation(coordinate: firstCoord, course: 0.0, speed: 0.0)
         }

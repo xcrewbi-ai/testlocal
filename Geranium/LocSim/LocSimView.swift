@@ -303,7 +303,7 @@ struct LocSimView: View {
     }
 
     private var actionButtonsRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             // Clear button
             Button(action: {
                 routeEngine.clearRoute()
@@ -311,7 +311,7 @@ struct LocSimView: View {
                 Label("Xóa", systemImage: "trash")
                     .font(.caption)
                     .padding(.vertical, 7)
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, 8)
                     .background(Color(.systemGray5))
                     .foregroundColor(.red)
                     .cornerRadius(8)
@@ -325,12 +325,12 @@ struct LocSimView: View {
                 Label("Lùi", systemImage: "arrow.uturn.backward")
                     .font(.caption)
                     .padding(.vertical, 7)
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, 8)
                     .background(Color(.systemGray5))
                     .foregroundColor(.primary)
                     .cornerRadius(8)
             }
-            .disabled(routeEngine.isSimulating || routeEngine.waypoints.isEmpty)
+            .disabled(routeEngine.waypoints.isEmpty || (routeEngine.isSimulating && routeEngine.waypoints.count <= routeEngine.currentSegmentIndex + 2))
 
             // Segment custom speed sheet button
             Button(action: {
@@ -342,7 +342,7 @@ struct LocSimView: View {
                 }
                 .font(.caption)
                 .padding(.vertical, 7)
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 8)
                 .background(Color.blue.opacity(0.12))
                 .foregroundColor(.blue)
                 .cornerRadius(8)
@@ -353,6 +353,30 @@ struct LocSimView: View {
             }
 
             Spacer()
+
+            // "Hoàn thành" button: pins final/current position and clears route lines
+            if !routeEngine.waypoints.isEmpty || routeEngine.isSimulating {
+                Button(action: {
+                    routeEngine.completeRouteAndClear()
+                    AlertKitAPI.present(
+                        title: "Đã hoàn thành!",
+                        icon: .done,
+                        style: .iOS17AppleMusic,
+                        haptic: .success
+                    )
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "flag.checkered")
+                        Text("Hoàn thành")
+                    }
+                    .font(.caption.bold())
+                    .foregroundColor(.white)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 9)
+                    .background(Color.blue)
+                    .cornerRadius(8)
+                }
+            }
 
             // Start / Pause / Resume button
             if !routeEngine.isSimulating {
@@ -366,7 +390,7 @@ struct LocSimView: View {
                     .font(.subheadline.bold())
                     .foregroundColor(.white)
                     .padding(.vertical, 7)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 14)
                     .background(routeEngine.waypoints.count >= 2 ? Color.green : Color.gray)
                     .cornerRadius(8)
                 }
@@ -386,7 +410,7 @@ struct LocSimView: View {
                     .font(.subheadline.bold())
                     .foregroundColor(.white)
                     .padding(.vertical, 7)
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 12)
                     .background(routeEngine.isPaused ? Color.green : Color.orange)
                     .cornerRadius(8)
                 }
