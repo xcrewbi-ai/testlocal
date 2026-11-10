@@ -12,9 +12,6 @@ struct GeraniumApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .onAppear {
-                    _ = RootHelper.loadMCM()
-                }
         }
     }
 }
