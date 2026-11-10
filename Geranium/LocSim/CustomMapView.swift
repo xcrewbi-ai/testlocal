@@ -162,6 +162,10 @@ struct CustomMapView: UIViewRepresentable {
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             let mapView = gesture.view as! MKMapView
+            // If user is currently typing in an input field (keyboard active), tapping on the map only dismisses the keyboard
+            if let window = mapView.window, window.endEditing(true) {
+                return
+            }
             let touchPoint = gesture.location(in: mapView)
             let coordinate = mapView.convert(touchPoint, toCoordinateFrom: mapView)
             parent.tappedCoordinate = EquatableCoordinate(coordinate: coordinate)

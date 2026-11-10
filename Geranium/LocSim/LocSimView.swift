@@ -57,10 +57,17 @@ final class LocationSearchManager: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: task)
     }
 
+    func dismissResults() {
+        searchResults = []
+        isSearching = false
+        searchTask?.cancel()
+    }
+
     func clear() {
         query = ""
         searchResults = []
         isSearching = false
+        searchTask?.cancel()
     }
 }
 
@@ -69,6 +76,8 @@ struct LocSimView: View {
     @StateObject private var routeEngine = RouteSimulationEngine.shared
     @StateObject private var searchManager = LocationSearchManager()
     @StateObject private var bookmarkManager = BookmarkManager.shared
+
+    @FocusState private var isSearchFocused: Bool
 
     @State private var mode: LocSimMode = .single
     @State private var lat: Double = 0.0
@@ -115,11 +124,22 @@ struct LocSimView: View {
                 LocationModel().requestAuthorisation()
             }
 
+            // Transparent Tap-To-Dismiss Overlay: Tapping outside search dismisses keyboard without selecting map point
+            if isSearchFocused || !searchManager.searchResults.isEmpty {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        isSearchFocused = false
+                        searchManager.dismissResults()
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+            }
+
             // Top Floating Search Bar (shortened on the right for Map Compass button clearance)
             VStack(spacing: 8) {
                 searchBarView
 
-                if !searchManager.searchResults.isEmpty {
+                if isSearchFocused && !searchManager.searchResults.isEmpty {
                     searchResultsDropdown
                 }
             }
@@ -148,7 +168,7 @@ struct LocSimView: View {
         }
         .onChange(of: tappedCoordinate) { newValue in
             guard let coord = newValue?.coordinate else { return }
-            searchManager.clear()
+            searchManager.dismissResults()
 
             if previewCoordinate != nil {
                 // If a preview pin is currently active, tapping moves the preview pin!
@@ -248,8 +268,14 @@ struct LocSimView: View {
             TextField("Tìm địa điểm, địa chỉ...", text: $searchManager.query)
                 .textFieldStyle(PlainTextFieldStyle())
                 .font(.subheadline)
+                .focused($isSearchFocused)
                 .onChange(of: searchManager.query) { newText in
                     searchManager.search(newText)
+                }
+                .onChange(of: isSearchFocused) { focused in
+                    if focused && !searchManager.query.isEmpty && searchManager.searchResults.isEmpty {
+                        searchManager.search(searchManager.query)
+                    }
                 }
 
             if searchManager.isSearching {
@@ -338,7 +364,9 @@ struct LocSimView: View {
         mapCenterCoord = EquatableCoordinate(coordinate: coord)
         previewCoordinate = coord
         previewTitle = item.name ?? "Địa điểm đã chọn"
+        isSearchFocused = false
         searchManager.clear()
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 
     // MARK: - Preview Pin Confirmation Card
@@ -762,7 +790,7 @@ struct LocSimView: View {
         }
         .zIndex(999)
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 withAnimation(.easeInOut(duration: 0.3)) {
                     showCenteredStopAlert = false
                 }
