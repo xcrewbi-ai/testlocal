@@ -2,7 +2,7 @@
 //  CustomMapView.swift
 //  Geranium (CompassPro)
 //
-//  High-Performance MapKit Component for Route Simulation & Vehicle Tracking.
+//  High-Performance MapKit Component for Route Simulation, Vehicle Tracking & Preview Pin.
 //
 
 import SwiftUI
@@ -32,6 +32,17 @@ final class MovingVehicleAnnotation: NSObject, MKAnnotation {
     }
 }
 
+final class PreviewPinAnnotation: NSObject, MKAnnotation {
+    @objc dynamic var coordinate: CLLocationCoordinate2D
+    let title: String?
+
+    init(coordinate: CLLocationCoordinate2D, title: String? = "Vị trí xem trước") {
+        self.coordinate = coordinate
+        self.title = title
+        super.init()
+    }
+}
+
 struct CustomMapView: UIViewRepresentable {
     @Binding var tappedCoordinate: EquatableCoordinate?
     @Binding var centerCoordinate: EquatableCoordinate?
@@ -39,6 +50,7 @@ struct CustomMapView: UIViewRepresentable {
     var waypoints: [RouteWaypoint]
     var pathCoordinates: [CLLocationCoordinate2D]
     var currentSimulatedCoord: CLLocationCoordinate2D?
+    var previewCoord: CLLocationCoordinate2D?
 
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
@@ -55,7 +67,7 @@ struct CustomMapView: UIViewRepresentable {
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.parent = self
 
-        // 1. Programmatic Map Center (e.g. from location search)
+        // 1. Programmatic Map Center (e.g. from location search or bookmark select)
         if let target = centerCoordinate?.coordinate {
             let changed = context.coordinator.lastCenteredCoord == nil ||
                 context.coordinator.lastCenteredCoord!.latitude != target.latitude ||
@@ -116,6 +128,19 @@ struct CustomMapView: UIViewRepresentable {
             }
         } else if let existing = existingVehicleAnn {
             context.coordinator.lastVehicleCoord = nil
+            mapView.removeAnnotation(existing)
+        }
+
+        // 4. Preview Pin Marker: for moving & confirming before setting fake GPS or route waypoint
+        let existingPreviewAnn = mapView.annotations.first { $0 is PreviewPinAnnotation } as? PreviewPinAnnotation
+        if let pCoord = previewCoord {
+            if let existing = existingPreviewAnn {
+                existing.coordinate = pCoord
+            } else {
+                let ann = PreviewPinAnnotation(coordinate: pCoord)
+                mapView.addAnnotation(ann)
+            }
+        } else if let existing = existingPreviewAnn {
             mapView.removeAnnotation(existing)
         }
     }
@@ -184,6 +209,20 @@ struct CustomMapView: UIViewRepresentable {
                 }
                 marker?.markerTintColor = UIColor.systemGreen
                 marker?.glyphImage = UIImage(systemName: "location.north.fill")
+                return marker
+            }
+
+            if annotation is PreviewPinAnnotation {
+                let identifier = "PreviewPin"
+                var marker = mapView.dequeueReusableAnnotationView(withIdentifier: identifier) as? MKMarkerAnnotationView
+                if marker == nil {
+                    marker = MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: identifier)
+                    marker?.canShowCallout = true
+                } else {
+                    marker?.annotation = annotation
+                }
+                marker?.markerTintColor = UIColor.systemOrange
+                marker?.glyphImage = UIImage(systemName: "mappin.and.ellipse")
                 return marker
             }
 

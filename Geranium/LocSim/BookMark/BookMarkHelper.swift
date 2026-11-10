@@ -1,84 +1,111 @@
 //
 //  BookMarkHelper.swift
-//  Geranium
+//  Geranium (CompassPro)
 //
-//  Created by cclerc on 21.12.23.
+//  High-reliability bookmark manager compatible with all sideload methods (SideStore, AltStore, TrollStore).
 //
 
 import Foundation
+import CoreLocation
 import SwiftUI
 
 let sharedUserDefaultsSuiteName = "group.live.cclerc.geraniumBookmarks"
 
+struct SavedBookmark: Identifiable, Codable, Equatable {
+    var id: UUID = UUID()
+    var name: String
+    var latitude: Double
+    var longitude: Double
+    var dateAdded: Date = Date()
+    var subtitle: String? = nil
+
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
+final class BookmarkManager: ObservableObject {
+    static let shared = BookmarkManager()
+    private let storageKey = "com.compasspro.bookmarks.saved"
+
+    @Published var bookmarks: [SavedBookmark] = []
+
+    private var storageDefaults: UserDefaults {
+        UserDefaults(suiteName: sharedUserDefaultsSuiteName) ?? UserDefaults.standard
+    }
+
+    init() {
+        loadBookmarks()
+    }
+
+    func loadBookmarks() {
+        // Try modern JSON storage
+        if let data = storageDefaults.data(forKey: storageKey),
+           let list = try? JSONDecoder().decode([SavedBookmark].self, from: data) {
+            self.bookmarks = list
+            return
+        }
+        if let data = UserDefaults.standard.data(forKey: storageKey),
+           let list = try? JSONDecoder().decode([SavedBookmark].self, from: data) {
+            self.bookmarks = list
+            return
+        }
+
+        // Check legacy plist array storage
+        let legacy = BookMarkRetrieve()
+        if !legacy.isEmpty {
+            self.bookmarks = legacy.compactMap { dict in
+                guard let name = dict["name"] as? String,
+                      let lat = dict["lat"] as? Double,
+                      let long = dict["long"] as? Double else { return nil }
+                return SavedBookmark(name: name, latitude: lat, longitude: long)
+            }
+            saveBookmarks()
+        }
+    }
+
+    func addBookmark(name: String, coordinate: CLLocationCoordinate2D, subtitle: String? = nil) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalName = trimmed.isEmpty ? "Vị trí đã lưu" : trimmed
+        let newBm = SavedBookmark(
+            name: finalName,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            dateAdded: Date(),
+            subtitle: subtitle
+        )
+        bookmarks.insert(newBm, at: 0)
+        saveBookmarks()
+    }
+
+    func deleteBookmark(at offsets: IndexSet) {
+        bookmarks.remove(atOffsets: offsets)
+        saveBookmarks()
+    }
+
+    func deleteBookmark(id: UUID) {
+        bookmarks.removeAll { $0.id == id }
+        saveBookmarks()
+    }
+
+    private func saveBookmarks() {
+        if let data = try? JSONEncoder().encode(bookmarks) {
+            storageDefaults.set(data, forKey: storageKey)
+            UserDefaults.standard.set(data, forKey: storageKey)
+        }
+    }
+}
+
+// MARK: - Legacy Compatibility APIs
 func BookMarkSave(lat: Double, long: Double, name: String) -> Bool {
-    let bookmark: [String: Any] = ["name": name, "lat": lat, "long": long]
-    var bookmarks = BookMarkRetrieve()
-    bookmarks.append(bookmark)
-    let sharedUserDefaults = UserDefaults(suiteName: sharedUserDefaultsSuiteName)
-    sharedUserDefaults?.set(bookmarks, forKey: "bookmarks")
-    successVibrate()
+    BookmarkManager.shared.addBookmark(name: name, coordinate: CLLocationCoordinate2D(latitude: lat, longitude: long))
     return true
 }
 
 func BookMarkRetrieve() -> [[String: Any]] {
-    let sharedUserDefaults = UserDefaults(suiteName: sharedUserDefaultsSuiteName)
-    if let bookmarks = sharedUserDefaults?.array(forKey: "bookmarks") as? [[String: Any]] {
+    let defaults = UserDefaults(suiteName: sharedUserDefaultsSuiteName) ?? UserDefaults.standard
+    if let bookmarks = defaults.array(forKey: "bookmarks") as? [[String: Any]] {
         return bookmarks
-    } else {
-        return []
     }
-}
-
-func isThereAnyMika() -> Bool {
-    let plistPath = "/var/mobile/Library/Preferences/com.mika.LocationSimulation.plist"
-    guard FileManager.default.fileExists(atPath: plistPath) else {
-        return false
-    }
-
-    do {
-        let data = try Data(contentsOf: URL(fileURLWithPath: plistPath))
-        var format: PropertyListSerialization.PropertyListFormat = .xml
-        let plist = try PropertyListSerialization.propertyList(from: data, options: .mutableContainersAndLeaves, format: &format)
-        guard let plistDict = plist as? [String: Any] else {
-            print("Plist is not a dictionary.")
-            return false
-        }
-        if let datasArray = plistDict["datas"] as? [Any] {
-            return true
-        } else {
-            return false
-        }
-
-    } catch {
-        return false
-    }
-}
-
-
-func importMika() {
-    let plistPath = "/var/mobile/Library/Preferences/com.mika.LocationSimulation.plist"
-
-    do {
-        let data = try Data(contentsOf: URL(fileURLWithPath: plistPath))
-        var format: PropertyListSerialization.PropertyListFormat = .xml
-        let plist = try PropertyListSerialization.propertyList(from: data, options: .mutableContainersAndLeaves, format: &format)
-        guard let plistDict = plist as? [String: Any] else {
-            print("not a dictionary")
-            return
-        }
-        if let datasArray = plistDict["datas"] as? [[String: Any]] {
-            for dataDict in datasArray {
-                if let la = dataDict["la"] as? Double,
-                   let lo = dataDict["lo"] as? Double,
-                   let remark = dataDict["remark"] as? String {
-                    BookMarkSave(lat: la, long: lo, name: remark)
-                }
-            }
-        } else {
-            print("datas not there")
-        }
-        UIApplication.shared.alert(title:"Done !",body:"Your saved bookmarks/records from Mika's LocSim were imported.")
-    } catch {
-        print("cant read file \(error)")
-    }
+    return []
 }

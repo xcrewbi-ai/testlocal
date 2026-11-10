@@ -1,152 +1,274 @@
 //
 //  BookMarkSlider.swift
-//  Geranium
+//  Geranium (CompassPro)
 //
-//  Created by cclerc on 21.12.23.
+//  Modern, High-Performance Bookmark Manager Sheet with Live Search & Quick Point Saver.
 //
 
 import SwiftUI
+import MapKit
 import AlertKit
 
-struct Bookmark: Identifiable {
-    var id = UUID()
-    var name: String
-    var lat: Double
-    var long: Double
-}
-
 struct BookMarkSlider: View {
-    @Environment(\.dismiss) var dismiss
-    @Binding var lat: Double
-    @Binding var long: Double
-    @State private var name = ""
-    @State private var result: Bool = false
-    @AppStorage("isMika") var isMika: Bool = false
-    @State private var bookmarks: [Bookmark] = BookMarkRetrieve().map {
-        Bookmark(name: $0["name"] as! String, lat: $0["lat"] as! Double, long: $0["long"] as! Double)
-    }
+    @Environment(\.presentationMode) var presentationMode
+    @ObservedObject var bookmarkManager = BookmarkManager.shared
+
+    var currentFakeCoord: CLLocationCoordinate2D?
+    var waypoints: [RouteWaypoint]
+    var onSelect: (SavedBookmark) -> Void
+
+    @State private var searchQuery: String = ""
+    @State private var searchResults: [MKMapItem] = []
+    @State private var isSearching: Bool = false
+    @State private var searchTask: DispatchWorkItem?
 
     var body: some View {
         NavigationView {
             List {
-                ForEach(bookmarks) { bookmark in
-                    Button(action: {
-                        close()
-                        LocSimManager.startLocSim(location: .init(latitude: bookmark.lat, longitude: bookmark.long))
-                        AlertKitAPI.present(
-                            title: "Started !",
-                            icon: .done,
-                            style: .iOS17AppleMusic,
-                            haptic: .success
-                        )
-                    }) {
-                        VStack(alignment: .leading) {
-                            Text("\(bookmark.name)")
-                                .font(.headline)
-                                .foregroundColor(.primary)
-                            Text("Latitude: \(bookmark.lat) Longitude: \(bookmark.long)")
-                                .font(.subheadline)
-                                .foregroundColor(.gray)
+                // Section 1: Search new place to bookmark
+                Section(header: Text("Tìm địa điểm để lưu")) {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.secondary)
+                        TextField("Nhập tên địa điểm hoặc địa chỉ...", text: $searchQuery)
+                            .onChange(of: searchQuery) { newText in
+                                performSearch(newText)
+                            }
+                        if isSearching {
+                            ProgressView().scaleEffect(0.7)
+                        } else if !searchQuery.isEmpty {
+                            Button(action: {
+                                searchQuery = ""
+                                searchResults = []
+                            }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
                         }
                     }
-                    .contentShape(Rectangle())
-                }
-                .onDelete(perform: deleteBookmark)
-            }
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Text("Bookmarks")
-                        .font(.title2)
-                        .bold()
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        if lat != 0.00 && long != 0.00 {
-                            UIApplication.shared.TextFieldAlert(
-                                title: "Enter bookmark name",
-                                textFieldPlaceHolder: "Example..."
-                            ) { enteredText, _ in
-                                let bookmarkName = enteredText ?? "Unknown"
-                                result = BookMarkSave(lat: lat, long: long, name: bookmarkName)
-                                bookmarks = BookMarkRetrieve().map {
-                                    Bookmark(name: $0["name"] as! String, lat: $0["lat"] as! Double, long: $0["long"] as! Double)
-                                }
-                            }
 
-                        } else {
-                            UIApplication.shared.confirmAlert(title: "Your position is set to 0", body: "Are you sure you want to continue? This might be a mistake; try picking somewhere on the map", onOK: {
-                                UIApplication.shared.TextFieldAlert(title: "Enter bookmark name", textFieldPlaceHolder: "Example...", completion: { enteredText, _ in
-                                    result = BookMarkSave(lat: lat, long: long, name: enteredText ?? "Unknown")
-                                    bookmarks = BookMarkRetrieve().map {
-                                        Bookmark(name: $0["name"] as! String, lat: $0["lat"] as! Double, long: $0["long"] as! Double)
+                    if !searchResults.isEmpty {
+                        ForEach(searchResults, id: \.self) { item in
+                            HStack {
+                                Image(systemName: "mappin.circle.fill")
+                                    .foregroundColor(.blue)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.name ?? "Địa điểm")
+                                        .font(.subheadline.bold())
+                                    let subtitle = [
+                                        item.placemark.thoroughfare,
+                                        item.placemark.subLocality,
+                                        item.placemark.locality
+                                    ].compactMap { $0 }.joined(separator: ", ")
+                                    if !subtitle.isEmpty {
+                                        Text(subtitle)
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
                                     }
-                                    AlertKitAPI.present(
-                                        title: "Added !",
-                                        icon: .done,
-                                        style: .iOS17AppleMusic,
-                                        haptic: .success
-                                    )
-                                })
-                            }, noCancel: false)
-                        }
-                    }) {
-                        Image(systemName: "plus")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 24, height: 24)
-                    }
-                }
-            }
-            .overlay(
-                    Group {
-                        if bookmarks.isEmpty {
-                            VStack {
-                                Text("No bookmarks saved.")
-                                    .foregroundColor(.secondary)
-                                    .font(.title)
-                                    .padding()
-                                    .multilineTextAlignment(.center)
-                                Text("To add a bookmark, select a custom location then tap the + button.")
-                                    .foregroundColor(.secondary)
-                                    .font(.footnote)
-                                    .multilineTextAlignment(.center)
+                                }
+
+                                Spacer()
+
+                                Button(action: {
+                                    saveFromSearch(item)
+                                }) {
+                                    Text("Lưu")
+                                        .font(.caption.bold())
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background(Color.blue)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(6)
+                                }
+                                .buttonStyle(BorderlessButtonStyle())
                             }
                         }
                     }
-                    , alignment: .center
-                )
-            .onAppear {
-                if isThereAnyMika(), !isMika {
-                    UIApplication.shared.confirmAlert(title:"Mika's LocSim bookmarks/records detected.", body: "Do you want to import them ?", onOK: {
-                        importMika()
-                        bookmarks = BookMarkRetrieve().map {
-                            Bookmark(name: $0["name"] as! String, lat: $0["lat"] as! Double, long: $0["long"] as! Double)
+                }
+
+                // Section 2: Quick save active positions
+                if currentFakeCoord != nil || !waypoints.isEmpty {
+                    Section(header: Text("Lưu vị trí đang hoạt động")) {
+                        if let fakeCoord = currentFakeCoord {
+                            HStack {
+                                Image(systemName: "location.fill")
+                                    .foregroundColor(.green)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Vị trí GPS đang fake")
+                                        .font(.subheadline.bold())
+                                    Text(String(format: "%.5f, %.5f", fakeCoord.latitude, fakeCoord.longitude))
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                Button(action: {
+                                    promptSave(coord: fakeCoord, defaultName: "Vị trí đang fake")
+                                }) {
+                                    Text("Lưu")
+                                        .font(.caption.bold())
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background(Color.green)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(6)
+                                }
+                                .buttonStyle(BorderlessButtonStyle())
+                            }
                         }
-                        isMika.toggle()
-                    }, noCancel: false, yes: true)
+
+                        ForEach(waypoints) { wp in
+                            HStack {
+                                Image(systemName: "flag.fill")
+                                    .foregroundColor(.orange)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Điểm \(wp.order) trong lộ trình")
+                                        .font(.subheadline.bold())
+                                    Text(String(format: "%.5f, %.5f", wp.coordinate.latitude, wp.coordinate.longitude))
+                                        .font(.caption2)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Spacer()
+
+                                Button(action: {
+                                    promptSave(coord: wp.coordinate, defaultName: "Điểm \(wp.order)")
+                                }) {
+                                    Text("Lưu")
+                                        .font(.caption.bold())
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 4)
+                                        .background(Color.orange)
+                                        .foregroundColor(.white)
+                                        .cornerRadius(6)
+                                }
+                                .buttonStyle(BorderlessButtonStyle())
+                            }
+                        }
+                    }
+                }
+
+                // Section 3: Saved bookmarks list
+                Section(header: Text("Địa điểm đã lưu (\(bookmarkManager.bookmarks.count))")) {
+                    if bookmarkManager.bookmarks.isEmpty {
+                        Text("Chưa có địa điểm nào được lưu.")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 8)
+                    } else {
+                        ForEach(bookmarkManager.bookmarks) { bm in
+                            Button(action: {
+                                onSelect(bm)
+                                presentationMode.wrappedValue.dismiss()
+                            }) {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "bookmark.circle.fill")
+                                        .font(.title2)
+                                        .foregroundColor(.blue)
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(bm.name)
+                                            .font(.headline)
+                                            .foregroundColor(.primary)
+
+                                        if let sub = bm.subtitle, !sub.isEmpty {
+                                            Text(sub)
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                        }
+
+                                        Text(String(format: "%.5f, %.5f", bm.latitude, bm.longitude))
+                                            .font(.caption2)
+                                            .foregroundColor(.gray)
+                                    }
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                        }
+                        .onDelete(perform: bookmarkManager.deleteBookmark)
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Địa điểm đã lưu")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Đóng") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
                 }
             }
         }
     }
 
-    private func deleteBookmark(at offsets: IndexSet) {
-        bookmarks.remove(atOffsets: offsets)
-        updateBookmarks()
+    private func performSearch(_ text: String) {
+        searchTask?.cancel()
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            searchResults = []
+            isSearching = false
+            return
+        }
+
+        isSearching = true
+        let task = DispatchWorkItem {
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = trimmed
+            let search = MKLocalSearch(request: request)
+            search.start { response, _ in
+                DispatchQueue.main.async {
+                    self.isSearching = false
+                    self.searchResults = response?.mapItems ?? []
+                }
+            }
+        }
+        searchTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: task)
+    }
+
+    private func saveFromSearch(_ item: MKMapItem) {
+        let name = item.name ?? "Địa điểm mới"
+        let coord = item.placemark.coordinate
+        let subtitle = [item.placemark.locality, item.placemark.administrativeArea].compactMap { $0 }.joined(separator: ", ")
+
+        bookmarkManager.addBookmark(name: name, coordinate: coord, subtitle: subtitle)
+        searchQuery = ""
+        searchResults = []
+
         AlertKitAPI.present(
-            title: "Deleted !",
+            title: "Đã lưu vào Bookmark!",
             icon: .done,
             style: .iOS17AppleMusic,
             haptic: .success
         )
     }
-    let sharedUserDefaultsSuiteName = "group.live.cclerc.geraniumBookmarks"
-    private func updateBookmarks() {
-        let sharedUserDefaults = UserDefaults(suiteName: sharedUserDefaultsSuiteName)
-        sharedUserDefaults?.set(bookmarks.map { ["name": $0.name, "lat": $0.lat, "long": $0.long] }, forKey: "bookmarks")
-        sharedUserDefaults?.synchronize()
-    }
-    
-    func close() {
-        dismiss()
+
+    private func promptSave(coord: CLLocationCoordinate2D, defaultName: String) {
+        UIApplication.shared.TextFieldAlert(
+            title: "Đặt tên địa điểm",
+            message: nil,
+            textFieldPlaceHolder: defaultName
+        ) { enteredText, _ in
+            let name = (enteredText?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false) ? enteredText! : defaultName
+            self.bookmarkManager.addBookmark(name: name, coordinate: coord)
+            AlertKitAPI.present(
+                title: "Đã lưu vào Bookmark!",
+                icon: .done,
+                style: .iOS17AppleMusic,
+                haptic: .success
+            )
+        }
     }
 }
