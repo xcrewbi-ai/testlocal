@@ -93,6 +93,7 @@ struct LocSimView: View {
     @State private var bookmarkSheetTggle: Bool = false
     @State private var showSegmentSheet: Bool = false
     @State private var showCenteredStopAlert: Bool = false
+    @State private var stopAlertDismissWorkItem: DispatchWorkItem? = nil
 
     var body: some View {
         if #available(iOS 16.0, *) {
@@ -240,10 +241,7 @@ struct LocSimView: View {
 
                     // Master Stop Simulation button: Prominent circular button with stop square icon
                     Button(action: {
-                        stopAllSimulation()
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                            showCenteredStopAlert = true
-                        }
+                        triggerStopGPS()
                     }) {
                         Image(systemName: "stop.fill")
                             .font(.system(size: 14, weight: .bold))
@@ -758,6 +756,7 @@ struct LocSimView: View {
             Color.black.opacity(0.4)
                 .ignoresSafeArea()
                 .onTapGesture {
+                    stopAlertDismissWorkItem?.cancel()
                     withAnimation(.easeInOut(duration: 0.25)) {
                         showCenteredStopAlert = false
                     }
@@ -789,13 +788,6 @@ struct LocSimView: View {
             .transition(.scale.combined(with: .opacity))
         }
         .zIndex(999)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    showCenteredStopAlert = false
-                }
-            }
-        }
     }
 
     // MARK: - Simulation Triggers
@@ -815,6 +807,25 @@ struct LocSimView: View {
             style: .iOS17AppleMusic,
             haptic: .success
         )
+    }
+
+    private func triggerStopGPS() {
+        // 1. Sends stop command (with 3x background retries in LocSimManager)
+        stopAllSimulation()
+
+        // 2. Cancel previous timer and reset to clean 1.0s without accumulation
+        stopAlertDismissWorkItem?.cancel()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+            showCenteredStopAlert = true
+        }
+
+        let work = DispatchWorkItem {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                showCenteredStopAlert = false
+            }
+        }
+        stopAlertDismissWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
     }
 
     private func stopAllSimulation() {

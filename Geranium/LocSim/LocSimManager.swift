@@ -57,14 +57,16 @@ final class LocSimManager {
         }
     }
 
-    /// Stops location simulation and returns device to genuine hardware GPS
+    /// Stops location simulation and returns device to genuine hardware GPS with 3x background retries
     static func stopLocSim() {
-        serialQueue.async {
-            simManager.stopLocationSimulation()
-            simManager.clearSimulatedLocations()
-            simManager.flush()
-            isSimulatingActive = false
-            post_required_timezone_update()
+        for delay in [0.0, 0.15, 0.35] {
+            serialQueue.asyncAfter(deadline: .now() + delay) {
+                simManager.stopLocationSimulation()
+                simManager.clearSimulatedLocations()
+                simManager.flush()
+                isSimulatingActive = false
+                post_required_timezone_update()
+            }
         }
     }
 }
