@@ -152,15 +152,42 @@ final class RouteSimulationEngine: ObservableObject {
         updateETA()
     }
 
-    /// Clears the route lines and waypoints while ALWAYS preserving fake GPS at the current/final location.
+    /// Clears the drafted route. If the route was NOT running, it simply clears the draft points
+    /// without jumping the device's fake GPS location to any draft waypoint.
     func clearRoute() {
+        stopTimer()
+        let wasSimulating = isSimulating
+        isSimulating = false
+        isPaused = false
+        currentSpeedKmh = 0.0
+
+        // Only lock position if the vehicle was actively simulating when cleared.
+        // If user was merely drafting points without running, NEVER jump to any draft point!
+        if wasSimulating, let current = currentCoordinate {
+            sendSimulatedLocation(coordinate: current, course: 0.0, speed: 0.0)
+        }
+
+        waypoints.removeAll()
+        segments.removeAll()
+        allPathCoordinates.removeAll()
+        totalDistanceMeters = 0.0
+        distanceCoveredMeters = 0.0
+        progressPercent = 0.0
+        currentSegmentIndex = 0
+        currentSubSegmentIndex = 0
+        distanceAlongSubSegment = 0.0
+
+        updateETA()
+    }
+
+    /// Completes the route while running: stops simulation, pins fake GPS at current vehicle position, and clears route lines.
+    func completeRouteAndClear() {
         stopTimer()
         isSimulating = false
         isPaused = false
         currentSpeedKmh = 0.0
 
-        // Retain the last known position so device never reverts to real GPS
-        let finalCoord = currentCoordinate ?? waypoints.last?.coordinate ?? waypoints.first?.coordinate
+        let finalCoord = currentCoordinate ?? waypoints.last?.coordinate
         if let final = finalCoord {
             currentCoordinate = final
             sendSimulatedLocation(coordinate: final, course: 0.0, speed: 0.0)
@@ -177,11 +204,6 @@ final class RouteSimulationEngine: ObservableObject {
         distanceAlongSubSegment = 0.0
 
         updateETA()
-    }
-
-    /// Completes the route early: identical to clearRoute().
-    func completeRouteAndClear() {
-        clearRoute()
     }
 
     private func buildStraightSegment(id: Int, from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> RouteSegment {

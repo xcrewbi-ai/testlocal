@@ -131,13 +131,13 @@ struct LocSimView: View {
 
                 if let previewCoord = previewCoordinate {
                     previewConfirmationCard(coordinate: previewCoord)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 12)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else if mode == .route {
                     RouteControlPanel()
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 12)
                 }
             }
 
@@ -163,6 +163,16 @@ struct LocSimView: View {
         .onChange(of: altitude) { newAlt in
             routeEngine.simulationAltitude = Double(newAlt) ?? 0.0
         }
+        .sheet(isPresented: $bookmarkSheetTggle) {
+            BookMarkSlider(
+                currentFakeCoord: routeEngine.currentCoordinate,
+                waypoints: routeEngine.waypoints
+            ) { selectedBm in
+                previewCoordinate = selectedBm.coordinate
+                previewTitle = selectedBm.name
+                mapCenterCoord = EquatableCoordinate(coordinate: selectedBm.coordinate)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Picker("Chế độ", selection: $mode) {
@@ -175,65 +185,54 @@ struct LocSimView: View {
             }
 
             ToolbarItem(placement: .navigationBarTrailing) {
-                // Manual coordinate entry
-                Button(action: showManualCoordAlert) {
-                    Image(systemName: "mappin.and.ellipse")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.blue)
-                }
-            }
-
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // Altitude setting
-                Button(action: showAltitudeAlert) {
-                    Image(systemName: "mountain.2.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.blue)
-                }
-            }
-
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // Bookmarks
-                Button(action: {
-                    self.bookmarkSheetTggle.toggle()
-                }) {
-                    Image(systemName: "bookmark.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.blue)
-                }
-                .sheet(isPresented: $bookmarkSheetTggle) {
-                    BookMarkSlider(
-                        currentFakeCoord: routeEngine.currentCoordinate,
-                        waypoints: routeEngine.waypoints
-                    ) { selectedBm in
-                        // When a bookmark is selected, activate preview pin and center map!
-                        previewCoordinate = selectedBm.coordinate
-                        previewTitle = selectedBm.name
-                        mapCenterCoord = EquatableCoordinate(coordinate: selectedBm.coordinate)
+                HStack(spacing: 8) {
+                    // Manual coordinate entry
+                    Button(action: showManualCoordAlert) {
+                        Image(systemName: "mappin.and.ellipse")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.blue)
+                            .frame(width: 34, height: 34)
+                            .background(Color(.systemGray6))
+                            .clipShape(Circle())
                     }
-                }
-            }
 
-            ToolbarItem(placement: .navigationBarTrailing) {
-                // Master Stop Simulation button: Prominent, larger, high-visibility badge
-                Button(action: {
-                    stopAllSimulation()
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                        showCenteredStopAlert = true
+                    // Altitude setting
+                    Button(action: showAltitudeAlert) {
+                        Image(systemName: "mountain.2.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(.blue)
+                            .frame(width: 34, height: 34)
+                            .background(Color(.systemGray6))
+                            .clipShape(Circle())
                     }
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "stop.circle.fill")
-                            .font(.system(size: 17, weight: .bold))
-                        Text("Dừng GPS")
-                            .font(.system(size: 13, weight: .bold))
+
+                    // Bookmarks
+                    Button(action: {
+                        bookmarkSheetTggle = true
+                    }) {
+                        Image(systemName: "bookmark.fill")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.blue)
+                            .frame(width: 34, height: 34)
+                            .background(Color(.systemGray6))
+                            .clipShape(Circle())
                     }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 5)
-                    .background(Color.red)
-                    .cornerRadius(12)
-                    .shadow(color: Color.red.opacity(0.35), radius: 4, x: 0, y: 2)
+
+                    // Master Stop Simulation button: Prominent circular button with stop square icon
+                    Button(action: {
+                        stopAllSimulation()
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                            showCenteredStopAlert = true
+                        }
+                    }) {
+                        Image(systemName: "stop.fill")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 34, height: 34)
+                            .background(Color.red)
+                            .clipShape(Circle())
+                            .shadow(color: Color.red.opacity(0.35), radius: 3, x: 0, y: 1)
+                    }
                 }
             }
         }
@@ -345,20 +344,20 @@ struct LocSimView: View {
     // MARK: - Preview Pin Confirmation Card
     @ViewBuilder
     private func previewConfirmationCard(coordinate: CLLocationCoordinate2D) -> some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
                 Image(systemName: "mappin.and.ellipse")
-                    .font(.title2)
+                    .font(.title3)
                     .foregroundColor(.orange)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(previewTitle.isEmpty ? "Vị trí đã chọn" : previewTitle)
-                        .font(.headline)
+                        .font(.subheadline.bold())
                         .foregroundColor(.primary)
                         .lineLimit(1)
 
                     Text(String(format: "%.6f, %.6f", coordinate.latitude, coordinate.longitude))
-                        .font(.caption)
+                        .font(.caption2)
                         .foregroundColor(.secondary)
                 }
 
@@ -376,46 +375,41 @@ struct LocSimView: View {
                 }
             }
 
-            Text("💡 Chạm vào bất kỳ đâu trên bản đồ xung quanh để di chuyển ghim nhanh")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 Button("Hủy") {
                     withAnimation {
                         previewCoordinate = nil
                         previewTitle = ""
                     }
                 }
-                .font(.subheadline.bold())
-                .padding(.vertical, 9)
-                .padding(.horizontal, 18)
+                .font(.caption.bold())
+                .padding(.vertical, 7)
+                .padding(.horizontal, 14)
                 .background(Color(.systemGray5))
                 .foregroundColor(.primary)
-                .cornerRadius(10)
+                .cornerRadius(8)
 
                 Button(action: {
                     confirmPreviewPin(at: coordinate)
                 }) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 4) {
                         Image(systemName: mode == .single ? "location.fill" : "plus.circle.fill")
                         Text(mode == .single ? "Xác nhận Fake GPS" : "Thêm vào lộ trình")
                     }
-                    .font(.subheadline.bold())
-                    .padding(.vertical, 9)
-                    .padding(.horizontal, 18)
+                    .font(.caption.bold())
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 14)
                     .background(Color.blue)
                     .foregroundColor(.white)
-                    .cornerRadius(10)
+                    .cornerRadius(8)
                 }
             }
         }
-        .padding(14)
+        .padding(10)
         .background(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 14)
                 .fill(Color(UIColor.secondarySystemGroupedBackground))
-                .shadow(color: Color.black.opacity(0.2), radius: 10, x: 0, y: 5)
+                .shadow(color: Color.black.opacity(0.15), radius: 6, x: 0, y: 3)
         )
     }
 
@@ -446,92 +440,93 @@ struct LocSimView: View {
         }
     }
 
-    // MARK: - Route Floating Control Panel
+    // MARK: - Route Floating Control Panel (Compact & Modern)
     @ViewBuilder
     private func RouteControlPanel() -> some View {
-        VStack(spacing: 8) {
-            // Stats Row
+        VStack(spacing: 5) {
+            // Stats Header: Speed, Distance, ETA, Waypoints, Road/Straight & Loop
             statsHeaderRow
 
-            // ETA Row (shown if 2+ waypoints)
-            if routeEngine.waypoints.count >= 2 {
-                etaRow
-            }
-
-            // Live Speed Slider Row (Zero Freeze)
+            // Live Speed Slider Row (Zero-Freeze)
             liveSpeedSliderRow
 
             // Progress bar
             if routeEngine.isSimulating {
                 ProgressView(value: routeEngine.progressPercent)
                     .progressViewStyle(LinearProgressViewStyle(tint: .blue))
-                    .padding(.horizontal, 12)
+                    .scaleEffect(x: 1, y: 0.8)
+                    .padding(.horizontal, 10)
             }
 
-            // Buttons row
+            // Compact Action Buttons Row
             actionButtonsRow
         }
+        .padding(.vertical, 4)
         .background(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: 14)
                 .fill(Color(UIColor.secondarySystemGroupedBackground))
-                .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+                .shadow(color: Color.black.opacity(0.12), radius: 6, x: 0, y: 3)
         )
     }
 
     private var statsHeaderRow: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Tốc độ")
+        HStack(spacing: 8) {
+            // Live Speed
+            HStack(spacing: 2) {
+                Text(String(format: "%.0f", routeEngine.currentSpeedKmh))
+                    .font(.subheadline.bold())
+                Text("km/h")
                     .font(.caption2)
                     .foregroundColor(.secondary)
-                HStack(spacing: 2) {
-                    Text(String(format: "%.1f", routeEngine.currentSpeedKmh))
-                        .font(.headline.bold())
-                    Text("km/h")
+            }
+
+            Divider().frame(height: 14)
+
+            // Distance & count
+            HStack(spacing: 2) {
+                Text(formatDistance(routeEngine.totalDistanceMeters))
+                    .font(.caption.bold())
+                Text("(\(routeEngine.waypoints.count)đ)")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
+            // ETA info (if >= 2 waypoints)
+            if routeEngine.waypoints.count >= 2 {
+                Divider().frame(height: 14)
+                HStack(spacing: 3) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 10))
+                        .foregroundColor(.blue)
+                    Text(routeEngine.etaFormattedDuration)
+                        .font(.caption.bold())
+                        .foregroundColor(.primary)
+                    Text("(\(routeEngine.etaArrivalTimeString))")
                         .font(.caption2)
                         .foregroundColor(.secondary)
                 }
             }
 
-            Divider().frame(height: 24)
+            Spacer(minLength: 4)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Quãng đường")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                Text(formatDistance(routeEngine.totalDistanceMeters))
-                    .font(.subheadline.bold())
-            }
-
-            Divider().frame(height: 24)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Điểm")
-                    .font(.caption2)
-                    .foregroundColor(.secondary)
-                Text("\(routeEngine.waypoints.count)")
-                    .font(.subheadline.bold())
-            }
-
-            Spacer()
-
-            // Smart Auto Road Routing toggle (Đường bộ thực tế vs Đường thẳng)
+            // Auto-routing toggle
             Button(action: {
                 routeEngine.isAutoRouting.toggle()
             }) {
-                HStack(spacing: 4) {
+                HStack(spacing: 2) {
                     Image(systemName: routeEngine.isAutoRouting ? "car.fill" : "point.topleft.down.curvedto.point.bottomright.up")
-                    Text(routeEngine.isAutoRouting ? "Đường bộ" : "Thẳng")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(routeEngine.isAutoRouting ? "Đường" : "Thẳng")
                         .font(.caption2.bold())
                     if routeEngine.isCalculatingRoute {
-                        ProgressView().scaleEffect(0.6)
+                        ProgressView().scaleEffect(0.5)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(routeEngine.isAutoRouting ? Color.blue.opacity(0.18) : Color.gray.opacity(0.15))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+                .background(routeEngine.isAutoRouting ? Color.blue.opacity(0.18) : Color(.systemGray5))
                 .foregroundColor(routeEngine.isAutoRouting ? .blue : .primary)
-                .cornerRadius(8)
+                .cornerRadius(6)
             }
 
             // Loop toggle
@@ -539,69 +534,29 @@ struct LocSimView: View {
                 routeEngine.isLooping.toggle()
             }) {
                 Image(systemName: routeEngine.isLooping ? "repeat.1" : "repeat")
-                    .font(.system(size: 14, weight: .semibold))
-                    .padding(8)
-                    .background(routeEngine.isLooping ? Color.blue.opacity(0.2) : Color.gray.opacity(0.15))
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(5)
+                    .background(routeEngine.isLooping ? Color.blue.opacity(0.2) : Color(.systemGray5))
                     .foregroundColor(routeEngine.isLooping ? .blue : .primary)
                     .clipShape(Circle())
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-    }
-
-    private var etaRow: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "clock.fill")
-                .font(.caption)
-                .foregroundColor(.blue)
-
-            Text("Ước tính:")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            Text(routeEngine.etaFormattedDuration)
-                .font(.caption.bold())
-                .foregroundColor(.primary)
-
-            Text("• Đến: \(routeEngine.etaArrivalTimeString)")
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-            Spacer()
-
-            let remainDist = max(0.0, routeEngine.totalDistanceMeters - routeEngine.distanceCoveredMeters)
-            Text("Còn \(formatDistance(remainDist))")
-                .font(.caption2.bold())
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(Color.blue.opacity(0.1))
-                .foregroundColor(.blue)
-                .cornerRadius(4)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .background(Color(.systemGray6).opacity(0.6))
-        .cornerRadius(6)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 10)
+        .padding(.top, 4)
     }
 
     // Zero-freeze speed controls using direct bindings
     private var liveSpeedSliderRow: some View {
-        HStack(spacing: 8) {
-            Text("Tốc độ:")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-
+        HStack(spacing: 6) {
             Button(action: {
                 routeEngine.setGlobalSpeedKmh(routeEngine.globalBaseSpeedKmh - 5)
             }) {
                 Text("-5")
                     .font(.caption2.bold())
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
                     .background(Color(.systemGray5))
-                    .cornerRadius(5)
+                    .cornerRadius(4)
             }
 
             Slider(
@@ -618,21 +573,21 @@ struct LocSimView: View {
             }) {
                 Text("+5")
                     .font(.caption2.bold())
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
                     .background(Color(.systemGray5))
-                    .cornerRadius(5)
+                    .cornerRadius(4)
             }
 
             Text("\(Int(routeEngine.globalBaseSpeedKmh)) km/h")
                 .font(.caption.bold())
-                .frame(width: 55, alignment: .trailing)
+                .frame(width: 50, alignment: .trailing)
         }
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 10)
     }
 
     private var actionButtonsRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             // Nút chuyển đổi Xóa / Hoàn thành:
             if routeEngine.isSimulating {
                 Button(action: {
@@ -644,17 +599,17 @@ struct LocSimView: View {
                         haptic: .success
                     )
                 }) {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Image(systemName: "flag.checkered")
-                            .font(.system(size: 14, weight: .bold))
+                            .font(.system(size: 12, weight: .bold))
                         Text("Hoàn thành")
                     }
-                    .font(.subheadline.bold())
-                    .padding(.vertical, 9)
-                    .padding(.horizontal, 12)
+                    .font(.caption.bold())
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 10)
                     .background(Color.blue)
                     .foregroundColor(.white)
-                    .cornerRadius(10)
+                    .cornerRadius(8)
                 }
             } else {
                 Button(action: {
@@ -670,12 +625,12 @@ struct LocSimView: View {
                         Image(systemName: "trash")
                         Text("Xóa")
                     }
-                    .font(.subheadline.bold())
-                    .padding(.vertical, 9)
-                    .padding(.horizontal, 12)
+                    .font(.caption.bold())
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 10)
                     .background(Color(.systemGray5))
                     .foregroundColor(.red)
-                    .cornerRadius(10)
+                    .cornerRadius(8)
                 }
                 .disabled(routeEngine.waypoints.isEmpty)
             }
@@ -688,12 +643,12 @@ struct LocSimView: View {
                     Image(systemName: "arrow.uturn.backward")
                     Text("Lùi")
                 }
-                .font(.subheadline)
-                .padding(.vertical, 9)
-                .padding(.horizontal, 10)
+                .font(.caption)
+                .padding(.vertical, 7)
+                .padding(.horizontal, 8)
                 .background(Color(.systemGray5))
                 .foregroundColor(.primary)
-                .cornerRadius(10)
+                .cornerRadius(8)
             }
             .disabled(routeEngine.waypoints.isEmpty || (routeEngine.isSimulating && routeEngine.waypoints.count <= routeEngine.currentSegmentIndex + 2))
 
@@ -701,16 +656,16 @@ struct LocSimView: View {
             Button(action: {
                 showSegmentSheet = true
             }) {
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     Image(systemName: "speedometer")
                     Text("Đoạn (\(routeEngine.segments.count))")
                 }
-                .font(.subheadline)
-                .padding(.vertical, 9)
-                .padding(.horizontal, 10)
+                .font(.caption)
+                .padding(.vertical, 7)
+                .padding(.horizontal, 8)
                 .background(Color.blue.opacity(0.12))
                 .foregroundColor(.blue)
-                .cornerRadius(10)
+                .cornerRadius(8)
             }
             .disabled(routeEngine.waypoints.count < 2)
             .sheet(isPresented: $showSegmentSheet) {
@@ -724,16 +679,16 @@ struct LocSimView: View {
                 Button(action: {
                     routeEngine.startSimulation()
                 }) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Image(systemName: "play.fill")
                         Text("Chạy")
                     }
-                    .font(.headline.bold())
+                    .font(.subheadline.bold())
                     .foregroundColor(.white)
-                    .padding(.vertical, 9)
-                    .padding(.horizontal, 18)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 14)
                     .background(routeEngine.waypoints.count >= 2 ? Color.green : Color.gray)
-                    .cornerRadius(10)
+                    .cornerRadius(8)
                 }
                 .disabled(routeEngine.waypoints.count < 2)
             } else {
@@ -744,21 +699,21 @@ struct LocSimView: View {
                         routeEngine.pauseSimulation()
                     }
                 }) {
-                    HStack(spacing: 5) {
+                    HStack(spacing: 4) {
                         Image(systemName: routeEngine.isPaused ? "play.fill" : "pause.fill")
                         Text(routeEngine.isPaused ? "Tiếp tục" : "Tạm dừng")
                     }
-                    .font(.headline.bold())
+                    .font(.subheadline.bold())
                     .foregroundColor(.white)
-                    .padding(.vertical, 9)
-                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 10)
                     .background(routeEngine.isPaused ? Color.green : Color.orange)
-                    .cornerRadius(10)
+                    .cornerRadius(8)
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 10)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 6)
     }
 
     private func formatDistance(_ meters: Double) -> String {
