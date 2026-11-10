@@ -135,7 +135,9 @@ struct CustomMapView: UIViewRepresentable {
         let existingPreviewAnn = mapView.annotations.first { $0 is PreviewPinAnnotation } as? PreviewPinAnnotation
         if let pCoord = previewCoord {
             if let existing = existingPreviewAnn {
-                existing.coordinate = pCoord
+                UIView.animate(withDuration: 0.2) {
+                    existing.coordinate = pCoord
+                }
             } else {
                 let ann = PreviewPinAnnotation(coordinate: pCoord)
                 mapView.addAnnotation(ann)
@@ -162,10 +164,6 @@ struct CustomMapView: UIViewRepresentable {
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             let mapView = gesture.view as! MKMapView
-            // If user is currently typing in an input field (keyboard active), tapping on the map only dismisses the keyboard
-            if let window = mapView.window, window.endEditing(true) {
-                return
-            }
             let touchPoint = gesture.location(in: mapView)
             let coordinate = mapView.convert(touchPoint, toCoordinateFrom: mapView)
             parent.tappedCoordinate = EquatableCoordinate(coordinate: coordinate)

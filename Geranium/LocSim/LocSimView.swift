@@ -126,7 +126,7 @@ struct LocSimView: View {
             }
 
             // Transparent Tap-To-Dismiss Overlay: Tapping outside search dismisses keyboard without selecting map point
-            if isSearchFocused || !searchManager.searchResults.isEmpty {
+            if isSearchFocused {
                 Color.black.opacity(0.001)
                     .ignoresSafeArea()
                     .onTapGesture {
