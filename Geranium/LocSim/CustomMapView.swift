@@ -34,8 +34,10 @@ final class MovingVehicleAnnotation: NSObject, MKAnnotation {
 
 struct CustomMapView: UIViewRepresentable {
     @Binding var tappedCoordinate: EquatableCoordinate?
+    @Binding var centerCoordinate: EquatableCoordinate?
     var isRouteMode: Bool
     var waypoints: [RouteWaypoint]
+    var pathCoordinates: [CLLocationCoordinate2D]
     var currentSimulatedCoord: CLLocationCoordinate2D?
 
     func makeUIView(context: Context) -> MKMapView {
@@ -53,13 +55,32 @@ struct CustomMapView: UIViewRepresentable {
     func updateUIView(_ mapView: MKMapView, context: Context) {
         context.coordinator.parent = self
 
-        // 1. Overlays and Waypoints: update ONLY when waypoint count or composition changes
-        if context.coordinator.lastWaypointCount != waypoints.count {
-            context.coordinator.lastWaypointCount = waypoints.count
+        // 1. Programmatic Map Center (e.g. from location search)
+        if let target = centerCoordinate?.coordinate {
+            let changed = context.coordinator.lastCenteredCoord == nil ||
+                context.coordinator.lastCenteredCoord!.latitude != target.latitude ||
+                context.coordinator.lastCenteredCoord!.longitude != target.longitude
+
+            if changed {
+                context.coordinator.lastCenteredCoord = target
+                let region = MKCoordinateRegion(center: target, latitudinalMeters: 800, longitudinalMeters: 800)
+                mapView.setRegion(region, animated: true)
+            }
+        }
+
+        // 2. Overlays and Waypoints: update ONLY when path or waypoint composition changes
+        let pathCount = pathCoordinates.count
+        let wpCount = waypoints.count
+        if context.coordinator.lastPathCount != pathCount || context.coordinator.lastWaypointCount != wpCount {
+            context.coordinator.lastPathCount = pathCount
+            context.coordinator.lastWaypointCount = wpCount
 
             // Update Polyline
             mapView.removeOverlays(mapView.overlays)
-            if waypoints.count >= 2 {
+            if pathCount >= 2 {
+                let polyline = MKPolyline(coordinates: pathCoordinates, count: pathCount)
+                mapView.addOverlay(polyline)
+            } else if wpCount >= 2 {
                 let coords = waypoints.map { $0.coordinate }
                 let polyline = MKPolyline(coordinates: coords, count: coords.count)
                 mapView.addOverlay(polyline)
@@ -75,18 +96,26 @@ struct CustomMapView: UIViewRepresentable {
             }
         }
 
-        // 2. Moving Vehicle Marker: smooth coordinate update without recreating pins
+        // 3. Moving Vehicle Marker: update ONLY when simulated coordinate actually changes
         let existingVehicleAnn = mapView.annotations.first { $0 is MovingVehicleAnnotation } as? MovingVehicleAnnotation
         if let simCoord = currentSimulatedCoord {
-            if let existing = existingVehicleAnn {
-                UIView.animate(withDuration: 0.8) {
-                    existing.coordinate = simCoord
+            let changed = context.coordinator.lastVehicleCoord == nil ||
+                context.coordinator.lastVehicleCoord!.latitude != simCoord.latitude ||
+                context.coordinator.lastVehicleCoord!.longitude != simCoord.longitude
+
+            if changed {
+                context.coordinator.lastVehicleCoord = simCoord
+                if let existing = existingVehicleAnn {
+                    UIView.animate(withDuration: 0.5) {
+                        existing.coordinate = simCoord
+                    }
+                } else {
+                    let vehicleAnn = MovingVehicleAnnotation(coordinate: simCoord)
+                    mapView.addAnnotation(vehicleAnn)
                 }
-            } else {
-                let vehicleAnn = MovingVehicleAnnotation(coordinate: simCoord)
-                mapView.addAnnotation(vehicleAnn)
             }
         } else if let existing = existingVehicleAnn {
+            context.coordinator.lastVehicleCoord = nil
             mapView.removeAnnotation(existing)
         }
     }
@@ -98,6 +127,9 @@ struct CustomMapView: UIViewRepresentable {
     class Coordinator: NSObject, MKMapViewDelegate {
         var parent: CustomMapView
         var lastWaypointCount: Int = -1
+        var lastPathCount: Int = -1
+        var lastVehicleCoord: CLLocationCoordinate2D? = nil
+        var lastCenteredCoord: CLLocationCoordinate2D? = nil
 
         init(_ parent: CustomMapView) {
             self.parent = parent

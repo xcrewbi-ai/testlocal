@@ -6,9 +6,4 @@
 //
 
 #import "LocSim/LocSimPrivateHeaders.h"
-
-#if __has_include("Libs/TrollStore/TSUtil.h")
-#import "Libs/TrollStore/TSUtil.h"
-#elif __has_include("TSUtil.h")
 #import "TSUtil.h"
-#endif
