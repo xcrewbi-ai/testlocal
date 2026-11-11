@@ -86,6 +86,12 @@ got="$(plist CFBundleIdentifier "$app/Info.plist")"
 [ "$got" = "$BUNDLE_ID" ] || die "the built app's bundle id is $got, not $BUNDLE_ID"
 version="$(plist CFBundleShortVersionString "$app/Info.plist")"
 
+cp -f "$ROOT/ios-app/AppIcon60x60@2x.png" "$app/AppIcon60x60@2x.png" 2>/dev/null || true
+cp -f "$ROOT/ios-app/AppIcon60x60@3x.png" "$app/AppIcon60x60@3x.png" 2>/dev/null || true
+cp -f "$ROOT/ios-app/AppIcon76x76~ipad.png" "$app/AppIcon76x76~ipad.png" 2>/dev/null || true
+cp -f "$ROOT/ios-app/AppIcon76x76@2x~ipad.png" "$app/AppIcon76x76@2x~ipad.png" 2>/dev/null || true
+cp -f "$ROOT/ios-app/AppIcon1024.png" "$app/AppIcon1024.png" 2>/dev/null || true
+
 # --- IPA ----------------------------------------------------------------------
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
