@@ -1,34 +1,79 @@
-name: Build Fake GPS (CompassPro) IPA
+name: Build CompassPro iOS 17+ IPA
 
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
+    name: Build CompassPro IPA
     runs-on: macos-15
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Show Xcode & Environment Info
+      - name: Setup Xcode
         run: |
+          sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode_16.1.app || sudo xcode-select -s /Applications/Xcode_16.0.app || true
           xcodebuild -version
-          xcrun --version
 
-      - name: Install ldid
-        run: brew install ldid || true
-
-      - name: Run build script
+      - name: Install build tools
         run: |
-          chmod +x ipabuild.sh
-          ./ipabuild.sh
+          brew install xcodegen
+          rustup target add aarch64-apple-ios
+          echo "xcodegen $(xcodegen --version 2>/dev/null | tail -1)"
+          rustc --version
+          cargo --version
 
-      - name: Upload IPA Artifacts
+      - name: Restore Rust build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            rust-core/target
+          key: cargo-ios-${{ hashFiles('rust-core/Cargo.lock') }}
+          restore-keys: cargo-ios-
+
+      - name: Build Rust FFI and Package CompassPro IPA
+        run: |
+          chmod +x build-rust.sh scripts/build-ipa.sh
+          bash scripts/build-ipa.sh
+
+      - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CompassPro-iOS-App
-          path: |
-            build/*.ipa
-            build/*.tipa
+          name: CompassPro-iOS17-App
+          path: build/*.ipa
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        with:
+          tag_name: v1.3.0-iOS17
+          name: "CompassPro v1.3.0 (iOS 17+ / 27.2 Edition)"
+          body: |
+            ## CompassPro v1.3.0 - iOS 17+ & iOS 27.2 Developer Edition
+            - **Tích hợp cơ chế giả lập vị trí & ghép đôi nhà phát triển (DVT Location Simulation):**
+              - Hoạt động mượt mà trên iOS 17.2, 17.4, 18.0, 27.2+ cài qua SideStore / AltStore / Feather.
+              - Không bị chặn bởi iOS App Sandbox (`deny(1) mach-lookup com.apple.locationd.simulation`).
+              - Tự động ghép đôi không dây: Mở Cài đặt > Quyền riêng tư & Bảo mật / Nhà phát triển > Kết nối > Nhập mã PIN 6 số.
+              - Hỗ trợ nhập tệp ghép đôi thủ công (`.mobiledevicepairing` / `.plist`).
+              - Tự động tải và Mount Developer Disk Image (DDI) từ Apple mirror.
+            - **Tính năng bản đồ & lộ trình CompassPro hoàn chỉnh:**
+              - Ghim điểm & di chuyển ghim xem trước (Preview Pin) linh hoạt trước khi xác nhận vị trí.
+              - Thanh tìm kiếm địa điểm thông minh, chạm ra ngoài để thoát bàn phím mà không bị chấm điểm nhầm.
+              - Khay đánh dấu (Bookmarks Slider) lưu điểm đang fake, điểm lộ trình, điểm tìm kiếm.
+              - Điều chỉnh tốc độ di chuyển trực tiếp (1 - 120 km/h) cùng nút `[-5]` `[+5]` km/h.
+              - Chạy lộ trình mượt mà theo đường cua thực tế với tính toán ETA chính xác.
+              - Nút Stop GPS lớn, đổi tông màu hiện đại, gửi lệnh dừng 3 lần ngầm và thông báo 1.0 giây chuẩn.
+              - Background Keep-Alive Audio giữ giả lập hoạt động ngầm khi khóa màn hình.
+          files: build/*.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
