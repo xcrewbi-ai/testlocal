@@ -76,7 +76,7 @@ find "$DERIVED_DATA" -name 'SideInstallerFFI-*.pcm' -delete 2>/dev/null || true
 
 xcodebuild build \
   -project CompassPro.xcodeproj -scheme CompassPro -configuration Release \
-  -destination 'generic/platform=iOS' -derivedDataPath "$DERIVED_DATA" \
+  -destination 'generic/platform=iOS' -sdk iphoneos -derivedDataPath "$DERIVED_DATA" \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
   ${overrides[@]+"${overrides[@]}"}
 
