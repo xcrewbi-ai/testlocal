@@ -17,6 +17,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Clone SideInstaller upstream and apply CompassPro overlay
+        run: |
+          git clone --depth 1 https://github.com/FrizzleM/SideInstaller.git upstream
+          echo "Cloned SideInstaller."
+          cp -Rf ios-app/* upstream/ios-app/
+          cp -Rf scripts/* upstream/scripts/
+          cp -f project.yml upstream/
+          cp -f build-rust.sh upstream/
+          echo "Applied CompassPro overlay."
+          ls -la upstream/ios-app/LocSimView.swift
+
       - name: Setup Xcode
         run: |
           sudo xcode-select -s /Applications/Xcode_16.2.app || sudo xcode-select -s /Applications/Xcode_16.1.app || sudo xcode-select -s /Applications/Xcode_16.0.app || true
@@ -37,12 +48,13 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-            rust-core/target
-          key: cargo-ios-${{ hashFiles('rust-core/Cargo.lock') }}
+            upstream/rust-core/target
+          key: cargo-ios-${{ hashFiles('upstream/rust-core/Cargo.lock') }}
           restore-keys: cargo-ios-
 
       - name: Build Rust FFI and Package CompassPro IPA
         run: |
+          cd upstream
           chmod +x build-rust.sh scripts/build-ipa.sh
           bash scripts/build-ipa.sh
 
@@ -50,7 +62,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: CompassPro-iOS17-App
-          path: build/*.ipa
+          path: upstream/build/*.ipa
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -74,6 +86,6 @@ jobs:
               - Chạy lộ trình mượt mà theo đường cua thực tế với tính toán ETA chính xác.
               - Nút Stop GPS lớn, đổi tông màu hiện đại, gửi lệnh dừng 3 lần ngầm và thông báo 1.0 giây chuẩn.
               - Background Keep-Alive Audio giữ giả lập hoạt động ngầm khi khóa màn hình.
-          files: build/*.ipa
+          files: upstream/build/*.ipa
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
