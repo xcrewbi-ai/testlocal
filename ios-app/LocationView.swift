@@ -69,6 +69,13 @@ final class LocationManager: ObservableObject {
     var popups: [ToolPopup] {
         [lastError.map(ToolPopup.error), lastSuccess.map(ToolPopup.success)].compactMap { $0 }
     }
+
+    func closePopup(_ popup: ToolPopup) {
+        switch popup {
+        case .error:   lastError = nil
+        case .success: lastSuccess = nil
+        }
+    }
 }
 
 struct LocationView: View {
