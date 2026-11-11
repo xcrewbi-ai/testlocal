@@ -75,7 +75,6 @@ struct LocSimView: View {
     @StateObject private var appSettings = AppSettings()
     @StateObject private var routeEngine = RouteSimulationEngine.shared
     @ObservedObject var bridge = LocationBridge.shared
-    @State private var showPairingSheet: Bool = false
     @StateObject private var searchManager = LocationSearchManager()
     @StateObject private var bookmarkManager = BookmarkManager.shared
 
@@ -164,32 +163,6 @@ struct LocSimView: View {
                     .background(Capsule().fill(Color.blue.opacity(0.9)))
                     .shadow(radius: 4)
                     .transition(.scale.combined(with: .opacity))
-                } else if !bridge.hasPairingFile {
-                    Button(action: { showPairingSheet = true }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundColor(.orange)
-                            Text("Chưa ghép đôi thiết bị - Bấm để ghép đôi")
-                                .font(.caption2.bold())
-                                .foregroundColor(.primary)
-                        }
-                        .padding(.vertical, 5)
-                        .padding(.horizontal, 12)
-                        .background(Capsule().fill(Color(UIColor.secondarySystemGroupedBackground)).shadow(radius: 3))
-                    }
-                } else if !bridge.isTunnelAvailable {
-                    Button(action: { showPairingSheet = true }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "shield.slash.fill")
-                                .foregroundColor(.red)
-                            Text("VPN Loopback đang tắt - Cần bật VPN")
-                                .font(.caption2.bold())
-                                .foregroundColor(.primary)
-                        }
-                        .padding(.vertical, 5)
-                        .padding(.horizontal, 12)
-                        .background(Capsule().fill(Color(UIColor.secondarySystemGroupedBackground)).shadow(radius: 3))
-                    }
                 }
             }
             .padding(.top, 8)
@@ -251,32 +224,13 @@ struct LocSimView: View {
         }
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
-                HStack(spacing: 8) {
-                    Picker("Chế độ", selection: $mode) {
-                        ForEach(LocSimMode.allCases) { m in
-                            Text(m.rawValue).tag(m)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 155)
-
-                    Button(action: { showPairingSheet = true }) {
-                        HStack(spacing: 4) {
-                            Circle()
-                                .fill(bridge.hasPairingFile ? Color.green : Color.orange)
-                                .frame(width: 8, height: 8)
-                            Image(systemName: bridge.hasPairingFile ? "bolt.shield.fill" : "link.badge.plus")
-                                .font(.system(size: 13, weight: .bold))
-                                .foregroundColor(bridge.hasPairingFile ? .green : .orange)
-                        }
-                        .frame(width: 32, height: 32)
-                        .background(Color(.systemGray6))
-                        .clipShape(Circle())
-                    }
-                    .sheet(isPresented: $showPairingSheet) {
-                        PairingSheetView()
+                Picker("Chế độ", selection: $mode) {
+                    ForEach(LocSimMode.allCases) { m in
+                        Text(m.rawValue).tag(m)
                     }
                 }
+                .pickerStyle(.segmented)
+                .frame(width: 155)
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 8) {
