@@ -568,7 +568,7 @@ struct ToolsView: View {
                         .buttonStyle(.plain, sound: .tick)
                         .cascadeItem(rowIndex(3))
                         NavigationLink {
-                            LocationView(manager: locationManager)
+                            LocSimView()
                         } label: {
                             ToolTile(image: "LocationLogo", title: L("Location spoofing"))
                         }

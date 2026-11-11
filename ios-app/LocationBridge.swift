@@ -24,12 +24,14 @@ final class LocationBridge: ObservableObject {
     @Published var ddiMountStatus: String = "Sẵn sàng"
 
     private var engine: Engine { Engine.shared }
-    private var keepAlive: KeepAlive { KeepAlive.shared }
+    private let keepAlive = KeepAlive()
 
     /// Checks if a valid developer pairing file exists
     var hasPairingFile: Bool {
         let path = PairingController.pairingFilePath()
-        return FileManager.default.fileExists(atPath: path) && (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int ?? 0) > 0
+        let attr = try? FileManager.default.attributesOfItem(atPath: path)
+        let size = (attr?[.size] as? NSNumber)?.int64Value ?? 0
+        return FileManager.default.fileExists(atPath: path) && size > 0
     }
 
     /// Checks if the tunnel / VPN is active

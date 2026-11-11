@@ -5,6 +5,7 @@
 //  Modern, High-Performance Bookmark Manager Sheet with Live Search & Quick Point Saver.
 //
 
+import Foundation
 import SwiftUI
 import MapKit
 import AlertKit

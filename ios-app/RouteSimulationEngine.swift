@@ -359,7 +359,9 @@ final class RouteSimulationEngine: ObservableObject {
         distanceAlongSubSegment = 0.0
         currentCoordinate = nil
         updateETA()
-        LocationBridge.shared.stopSimulation()
+        DispatchQueue.main.async {
+            LocationBridge.shared.stopSimulation()
+        }
     }
 
     func finishRouteAtDestination() {
@@ -544,7 +546,9 @@ final class RouteSimulationEngine: ObservableObject {
             speed: speed,
             timestamp: Date()
         )
-        LocationBridge.shared.simulate(coordinate: coordinate, altitude: 0.0)
+        DispatchQueue.main.async {
+            LocationBridge.shared.simulate(coordinate: coordinate, altitude: 0.0)
+        }
     }
 
     // MARK: - ETA Calculation
