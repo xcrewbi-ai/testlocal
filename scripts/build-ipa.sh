@@ -88,6 +88,13 @@ version="$(plist CFBundleShortVersionString "$app/Info.plist")"
 
 cp -f "$ROOT/ios-app/"*.png "$app/" 2>/dev/null || true
 
+# --- Embed Developer Disk Image (DDI) into app bundle ---
+echo "==> Embedding Developer Disk Image (DDI) into CompassPro.app"
+mkdir -p "$app/DDI"
+curl -sSL "https://github.com/doronz88/DeveloperDiskImage/raw/refs/heads/main/PersonalizedImages/Xcode_iOS_DDI_Personalized/BuildManifest.plist" -o "$app/DDI/BuildManifest.plist" || true
+curl -sSL "https://github.com/doronz88/DeveloperDiskImage/raw/refs/heads/main/PersonalizedImages/Xcode_iOS_DDI_Personalized/Image.dmg" -o "$app/DDI/Image.dmg" || true
+curl -sSL "https://github.com/doronz88/DeveloperDiskImage/raw/refs/heads/main/PersonalizedImages/Xcode_iOS_DDI_Personalized/Image.dmg.trustcache" -o "$app/DDI/Image.dmg.trustcache" || true
+
 # --- IPA ----------------------------------------------------------------------
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT

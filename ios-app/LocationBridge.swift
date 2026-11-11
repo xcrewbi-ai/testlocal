@@ -25,6 +25,9 @@ final class LocationBridge: ObservableObject {
 
     private var engine: Engine { Engine.shared }
     private let keepAlive = KeepAlive()
+    private var resendTimer: Timer?
+    private static let resendInterval: TimeInterval = 4.0
+    private var isSettingUp = false
 
     /// Checks if a valid developer pairing file exists
     var hasPairingFile: Bool {
@@ -39,35 +42,82 @@ final class LocationBridge: ObservableObject {
         engine.tunnelAvailable || engine.vpnConnected
     }
 
-    /// Ensures DDI is downloaded, mounted, and the DVT location session is open
-    func ensureDVTReady(quietly: Bool = false) async throws {
+    /// Ensures DDI is downloaded/prepared, mounted, and the DVT location session is open
+    func ensureDVTReady() async throws {
         guard !engine.connection.isSimulatingLocation else {
             isDVTReady = true
             return
         }
 
-        if !DeveloperDiskImage.isDownloaded {
-            ddiMountStatus = "Đang tải DDI từ mirror..."
-            try await DeveloperDiskImage.downloadMissing { fraction in
-                Engine.shared.log("DDI download: \(Int(fraction * 100))%")
+        // Avoid multiple concurrent setup calls from route timers
+        if isSettingUp {
+            while isSettingUp {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            if engine.connection.isSimulatingLocation {
+                isDVTReady = true
+                return
+            }
+            if let err = lastError {
+                throw EngineError.message(err)
+            }
+            return
+        }
+
+        isSettingUp = true
+        isBusy = true
+        defer {
+            isSettingUp = false
+            isBusy = false
+        }
+
+        // 1. Verify Pairing File
+        let pairingPath = PairingController.pairingFilePath()
+        let pAttr = try? FileManager.default.attributesOfItem(atPath: pairingPath)
+        let pSize = (pAttr?[.size] as? NSNumber)?.int64Value ?? 0
+        guard FileManager.default.fileExists(atPath: pairingPath) && pSize > 0 else {
+            let msg = "Thiết bị chưa được ghép đôi!\n\nVui lòng mở tab 'Ghép đôi', sau đó vào Cài đặt máy > Nhà phát triển > Kết nối và nhập mã PIN để tạo tệp ghép đôi."
+            lastError = msg
+            throw EngineError.message(msg)
+        }
+
+        // 2. Verify Tunnel / VPN is connected
+        engine.refreshNetworkStatus()
+        guard engine.vpnConnected else {
+            let msg = "Chưa kết nối VPN Loopback!\n\nTrên iOS 17+, Apple yêu cầu chạy kết nối DVT qua tunnel.\nVui lòng vào Cài đặt > VPN và bật kết nối VPN (SideStore VPN hoặc WireGuard 10.7.0.1) trước khi bắt đầu Fake GPS."
+            lastError = msg
+            throw EngineError.message(msg)
+        }
+
+        // 3. Prepare DDI (check bundle first, then disk, then download)
+        ddiMountStatus = "Đang chuẩn bị Developer Disk Image..."
+        try await DeveloperDiskImage.prepareLocalDDI { fraction in
+            DispatchQueue.main.async {
+                self.ddiMountStatus = "Chuẩn bị DDI: \(Int(fraction * 100))%"
             }
         }
 
+        // 4. Mount DDI & Start DVT Simulation Session
         ddiMountStatus = "Đang kết nối & Mount DDI..."
         _ = try await engine.prepareLocationSimulation(
             imagePath: DeveloperDiskImage.imagePath,
             trustcachePath: DeveloperDiskImage.trustcachePath,
             manifestPath: DeveloperDiskImage.manifestPath
         ) { fraction in
-            Engine.shared.log("DDI mount: \(Int(fraction * 100))%")
+            DispatchQueue.main.async {
+                let step = Int(fraction * 4) * 25
+                self.ddiMountStatus = "Đang Mount DDI: \(step)%"
+            }
         }
 
         isDVTReady = true
         ddiMountStatus = "Đã kết nối DVT thành công"
+        lastError = nil
+        engine.log("LocationBridge: DVT ready and location simulation session opened.")
     }
 
     /// Sends simulated coordinate to the device
-    func simulate(coordinate: CLLocationCoordinate2D, altitude: Double = 0.0) {
+    func simulate(coordinate: CLLocationCoordinate2D, altitude: Double = 0.0, isRouteMode: Bool = false) async throws {
         currentSimulatedCoordinate = coordinate
         isSimulating = true
         lastError = nil
@@ -82,27 +132,59 @@ final class LocationBridge: ObservableObject {
         )
         LocSimManager.updateSimulatedLocation(location: clLoc)
 
-        // 2. DVT Simulation over loopback
-        Task {
-            do {
-                if !engine.connection.isSimulatingLocation {
-                    try await ensureDVTReady()
+        // 2. DVT Simulation over loopback (iOS 17+)
+        if !engine.connection.isSimulatingLocation {
+            try await ensureDVTReady()
+        }
+
+        try await engine.simulateLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        keepAlive.startAudio()
+
+        // iOS drops simulated location if not re-sent periodically (every 4s)
+        if !isRouteMode {
+            startResending()
+        } else {
+            stopResending()
+        }
+    }
+
+    /// Periodic resend timer (4 seconds) for single point simulation on iOS 17+
+    func startResending() {
+        stopResending()
+        resendTimer = Timer.scheduledTimer(withTimeInterval: Self.resendInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self = self, let simulated = self.currentSimulatedCoordinate, self.isSimulating else { return }
+                guard self.engine.connection.isSimulatingLocation else {
+                    self.sessionClosed()
+                    return
                 }
-                try await engine.simulateLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-                keepAlive.startAudio()
-            } catch {
-                engine.log("LocationBridge simulate error: \(error.localizedDescription)")
-                // Do not override with transient network error if user just tapped
+                try? await self.engine.simulateLocation(latitude: simulated.latitude,
+                                                        longitude: simulated.longitude)
             }
         }
+    }
+
+    func stopResending() {
+        resendTimer?.invalidate()
+        resendTimer = nil
+    }
+
+    private func sessionClosed() {
+        stopResending()
+        isSimulating = false
+        currentSimulatedCoordinate = nil
+        isDVTReady = false
+        keepAlive.stopAll()
+        lastError = "Phiên DVT đã bị ngắt. Vui lòng kiểm tra lại VPN và kích hoạt lại."
     }
 
     /// Stops GPS simulation and returns device to genuine location
     func stopSimulation() {
         isSimulating = false
         currentSimulatedCoordinate = nil
+        stopResending()
 
-        // 1. TrollStore stop (3x background retries)
+        // 1. TrollStore stop (with 3x background retries)
         LocSimManager.stopLocSim()
 
         // 2. DVT Stop

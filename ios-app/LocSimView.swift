@@ -97,6 +97,10 @@ struct LocSimView: View {
     @State private var showCenteredStopAlert: Bool = false
     @State private var stopAlertDismissWorkItem: DispatchWorkItem? = nil
 
+    @State private var isStartingSimulation: Bool = false
+    @State private var connectionErrorMessage: String? = nil
+    @State private var showConnectionErrorAlert: Bool = false
+
     var body: some View {
         if #available(iOS 16.0, *) {
             NavigationStack {
@@ -145,6 +149,48 @@ struct LocSimView: View {
                 if isSearchFocused && !searchManager.searchResults.isEmpty {
                     searchResultsDropdown
                 }
+
+                if isStartingSimulation {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                        Text(bridge.ddiMountStatus.isEmpty ? "Đang kết nối giả lập vị trí..." : bridge.ddiMountStatus)
+                            .font(.caption.bold())
+                            .foregroundColor(.white)
+                    }
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 14)
+                    .background(Capsule().fill(Color.blue.opacity(0.9)))
+                    .shadow(radius: 4)
+                    .transition(.scale.combined(with: .opacity))
+                } else if !bridge.hasPairingFile {
+                    Button(action: { showPairingSheet = true }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                            Text("Chưa ghép đôi thiết bị - Bấm để ghép đôi")
+                                .font(.caption2.bold())
+                                .foregroundColor(.primary)
+                        }
+                        .padding(.vertical, 5)
+                        .padding(.horizontal, 12)
+                        .background(Capsule().fill(Color(UIColor.secondarySystemGroupedBackground)).shadow(radius: 3))
+                    }
+                } else if !bridge.isTunnelAvailable {
+                    Button(action: { showPairingSheet = true }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "shield.slash.fill")
+                                .foregroundColor(.red)
+                            Text("VPN Loopback đang tắt - Cần bật VPN")
+                                .font(.caption2.bold())
+                                .foregroundColor(.primary)
+                        }
+                        .padding(.vertical, 5)
+                        .padding(.horizontal, 12)
+                        .background(Capsule().fill(Color(UIColor.secondarySystemGroupedBackground)).shadow(radius: 3))
+                    }
+                }
             }
             .padding(.top, 8)
 
@@ -185,6 +231,13 @@ struct LocSimView: View {
         }
         .onChange(of: altitude) { newAlt in
             routeEngine.simulationAltitude = Double(newAlt) ?? 0.0
+        }
+        .alert(isPresented: $showConnectionErrorAlert) {
+            Alert(
+                title: Text("Thông báo kết nối GPS"),
+                message: Text(connectionErrorMessage ?? "Không thể kết nối dịch vụ định vị DVT."),
+                dismissButton: .default(Text("Đã hiểu"))
+            )
         }
         .sheet(isPresented: $bookmarkSheetTggle) {
             BookMarkSlider(
@@ -468,13 +521,7 @@ struct LocSimView: View {
 
         if mode == .single {
             let altitudeValue = Double(altitude) ?? 0.0
-            startSingleSimulation(at: coordinate, altitude: altitudeValue)
-            AlertKitAPI.present(
-                title: "Đã tới \(name)",
-                icon: .done,
-                style: .iOS17AppleMusic,
-                haptic: .success
-            )
+            startSingleSimulation(at: coordinate, altitude: altitudeValue, name: name)
         } else {
             routeEngine.addWaypoint(coordinate)
             AlertKitAPI.present(
@@ -811,14 +858,27 @@ struct LocSimView: View {
     }
 
     // MARK: - Simulation Triggers
-    private func startSingleSimulation(at coordinate: CLLocationCoordinate2D, altitude: Double) {
-        LocationBridge.shared.simulate(coordinate: coordinate, altitude: altitude)
-        AlertKitAPI.present(
-            title: "Đã bật GPS!",
-            icon: .done,
-            style: .iOS17AppleMusic,
-            haptic: .success
-        )
+    private func startSingleSimulation(at coordinate: CLLocationCoordinate2D, altitude: Double, name: String? = nil) {
+        guard !isStartingSimulation else { return }
+        isStartingSimulation = true
+
+        Task {
+            do {
+                try await LocationBridge.shared.simulate(coordinate: coordinate, altitude: altitude, isRouteMode: false)
+                isStartingSimulation = false
+                let title = name.map { "Đã tới \($0)" } ?? "Đã bật Fake GPS!"
+                AlertKitAPI.present(
+                    title: title,
+                    icon: .done,
+                    style: .iOS17AppleMusic,
+                    haptic: .success
+                )
+            } catch {
+                isStartingSimulation = false
+                connectionErrorMessage = error.localizedDescription
+                showConnectionErrorAlert = true
+            }
+        }
     }
     private func triggerStopGPS() {
         // 1. Sends stop command (with 3x background retries in LocSimManager)

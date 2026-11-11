@@ -229,13 +229,26 @@ struct PairingSheetView: View {
         statusMessage = nil
 
         Task {
+            let monitorTask = Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    if let pin = Engine.shared.pairingPIN {
+                        await MainActor.run {
+                            self.displayedPIN = pin
+                        }
+                    }
+                }
+            }
+
             do {
                 _ = try await PairingController.shared.startAndWait()
+                monitorTask.cancel()
                 statusMessage = "Ghép đôi thành công! Thiết bị đã sẵn sàng giả lập vị trí."
                 displayedPIN = nil
             } catch is CancellationError {
-                // Cancelled
+                monitorTask.cancel()
             } catch {
+                monitorTask.cancel()
                 errorMessage = "Lỗi ghép đôi: \(error.localizedDescription)"
             }
             isPairingInProgress = false

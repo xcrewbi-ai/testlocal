@@ -34,6 +34,37 @@ enum DeveloperDiskImage {
         }
     }
 
+    static func prepareLocalDDI(progress: @escaping (Double) -> Void) async throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        // 1. Copy from app bundle if bundled
+        let bundleDDI = Bundle.main.bundleURL.appendingPathComponent("DDI", isDirectory: true)
+        for name in files {
+            let dest = directory.appendingPathComponent(name)
+            let destAttr = try? FileManager.default.attributesOfItem(atPath: dest.path)
+            let destSize = (destAttr?[.size] as? NSNumber)?.int64Value ?? 0
+            if destSize == 0 {
+                let bundledFile = bundleDDI.appendingPathComponent(name)
+                if FileManager.default.fileExists(atPath: bundledFile.path) {
+                    try? FileManager.default.removeItem(at: dest)
+                    try? FileManager.default.copyItem(at: bundledFile, to: dest)
+                } else if let resourceURL = Bundle.main.url(forResource: name, withExtension: nil) {
+                    try? FileManager.default.removeItem(at: dest)
+                    try? FileManager.default.copyItem(at: resourceURL, to: dest)
+                }
+            }
+        }
+
+        if isDownloaded {
+            Engine.shared.log("DDI files are ready in Documents/DDI.")
+            progress(1.0)
+            return
+        }
+
+        // 2. Download missing files from GitHub mirror if not bundled
+        try await downloadMissing(progress: progress)
+    }
+
     static func downloadMissing(progress: @escaping (Double) -> Void) async throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let missing = files.filter { name in

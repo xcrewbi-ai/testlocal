@@ -311,28 +311,41 @@ final class RouteSimulationEngine: ObservableObject {
             return
         }
 
-        if currentSegmentIndex >= segments.count || (totalDistanceMeters > 0 && distanceCoveredMeters >= totalDistanceMeters) {
-            currentSegmentIndex = 0
-            currentSubSegmentIndex = 0
-            distanceAlongSubSegment = 0.0
-            distanceCoveredMeters = 0.0
-        }
+        Task { @MainActor in
+            do {
+                if !LocationBridge.shared.isDVTReady {
+                    try await LocationBridge.shared.ensureDVTReady()
+                }
 
-        let curSeg = (currentSegmentIndex < segments.count) ? segments[currentSegmentIndex] : nil
-        currentSpeedKmh = curSeg?.customSpeedKmh ?? globalBaseSpeedKmh
-        currentLateralOffset = 0.0
-        isSimulating = true
-        isPaused = false
+                if self.currentSegmentIndex >= self.segments.count || (self.totalDistanceMeters > 0 && self.distanceCoveredMeters >= self.totalDistanceMeters) {
+                    self.currentSegmentIndex = 0
+                    self.currentSubSegmentIndex = 0
+                    self.distanceAlongSubSegment = 0.0
+                    self.distanceCoveredMeters = 0.0
+                }
 
-        if currentCoordinate == nil || (currentSegmentIndex == 0 && distanceAlongSubSegment == 0.0) {
-            if let firstCoord = waypoints.first?.coordinate {
-                currentCoordinate = firstCoord
-                sendSimulatedLocation(coordinate: firstCoord, course: 0.0, speed: 0.0)
+                let curSeg = (self.currentSegmentIndex < self.segments.count) ? self.segments[self.currentSegmentIndex] : nil
+                self.currentSpeedKmh = curSeg?.customSpeedKmh ?? self.globalBaseSpeedKmh
+                self.currentLateralOffset = 0.0
+                self.isSimulating = true
+                self.isPaused = false
+
+                if self.currentCoordinate == nil || (self.currentSegmentIndex == 0 && self.distanceAlongSubSegment == 0.0) {
+                    if let firstCoord = self.waypoints.first?.coordinate {
+                        self.currentCoordinate = firstCoord
+                        self.sendSimulatedLocation(coordinate: firstCoord, course: 0.0, speed: 0.0)
+                    }
+                }
+
+                self.startTimer()
+                self.updateETA()
+            } catch {
+                UIApplication.shared.alert(
+                    title: "Lỗi chạy lộ trình",
+                    body: error.localizedDescription
+                )
             }
         }
-
-        startTimer()
-        updateETA()
     }
 
     func pauseSimulation() {
@@ -374,6 +387,9 @@ final class RouteSimulationEngine: ObservableObject {
         if let destination = waypoints.last?.coordinate {
             currentCoordinate = destination
             sendSimulatedLocation(coordinate: destination, course: 0.0, speed: 0.0)
+            DispatchQueue.main.async {
+                LocationBridge.shared.startResending()
+            }
         }
         updateETA()
         // Crucial: LocSimManager.stopLocSim() is NOT called! Keeps location permanently pinned.
@@ -546,8 +562,8 @@ final class RouteSimulationEngine: ObservableObject {
             speed: speed,
             timestamp: Date()
         )
-        DispatchQueue.main.async {
-            LocationBridge.shared.simulate(coordinate: coordinate, altitude: 0.0)
+        Task { @MainActor in
+            try? await LocationBridge.shared.simulate(coordinate: coordinate, altitude: self.simulationAltitude, isRouteMode: true)
         }
     }
 

@@ -262,8 +262,8 @@ final class Engine {
     static var minimumOSText: String { "\(minimumOSMajorVersion)" }
 
     /// Minimum iOS for everything after pairing. The RSD tunnel needs iOS 17+
-    /// (CoreDeviceProxy); the UI needs 18.
-    static let minimumTunnelOSMajorVersion = 18
+    /// (CoreDeviceProxy).
+    static let minimumTunnelOSMajorVersion = 17
     static var minimumTunnelOSText: String { "\(minimumTunnelOSMajorVersion)" }
 
     /// True when this iPhone can pair with itself, so no computer-made pairing
