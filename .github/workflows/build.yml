@@ -21,7 +21,7 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/FrizzleM/SideInstaller.git upstream
           echo "Cloned SideInstaller."
-          rm -rf upstream/ios-app/Assets.xcassets/AppIcon.appiconset
+          rm -rf upstream/ios-app/Assets.xcassets
           cp -Rf ios-app/* upstream/ios-app/
           cp -Rf scripts/* upstream/scripts/
           cp -f project.yml upstream/
